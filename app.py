@@ -120,13 +120,15 @@ elif st.session_state.step == "done":
         async def fetch_dialogs():
             async for dialog in client.iter_dialogs():
                 entity = dialog.entity
+                username = getattr(entity, "username", None)
+                link = f"@{username}" if username else "—"
                 if isinstance(entity, Channel):
                     if entity.megagroup:
-                        groups.append({"id": entity.id, "title": entity.title, "type": "🔵 Supergroupe"})
+                        groups.append({"id": entity.id, "title": entity.title, "username": link, "type": "🔵 Supergroupe"})
                     else:
-                        channels.append({"id": entity.id, "title": entity.title, "type": "📢 Channel"})
+                        channels.append({"id": entity.id, "title": entity.title, "username": link, "type": "📢 Channel"})
                 elif isinstance(entity, Chat):
-                    groups.append({"id": entity.id, "title": entity.title, "type": "💬 Groupe"})
+                    groups.append({"id": entity.id, "title": entity.title, "username": link, "type": "💬 Groupe"})
 
         loop.run_until_complete(fetch_dialogs())
 
