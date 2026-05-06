@@ -150,9 +150,17 @@ elif st.session_state.step == "done":
     all_items = channels + groups
     if all_items:
         import pandas as pd
+        from io import BytesIO
         df = pd.DataFrame(all_items)
-        csv = df.to_csv(index=False).encode("utf-8")
-        st.download_button("📥 Télécharger en CSV", csv, "telegram_channels.csv", "text/csv")
+        buffer = BytesIO()
+        with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
+            df.to_excel(writer, index=False, sheet_name="Channels")
+        st.download_button(
+            "📥 Télécharger en Excel (XLSX)",
+            buffer.getvalue(),
+            "telegram_channels.xlsx",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
 
     if st.button("🔌 Se déconnecter"):
         loop.run_until_complete(client.disconnect())
