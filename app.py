@@ -8,111 +8,147 @@ st.set_page_config(page_title="Telegram Channel Lister", page_icon="📢", layou
 st.title("📢 Telegram Channel Lister")
 st.markdown("Liste de tous les channels et groupes Telegram que tu as rejoint.")
 
-# Sidebar for config
+# Session state init
+if "step" not in st.session_state:
+    st.session_state.step = "config"
+if "client" not in st.session_state:
+    st.session_state.client = None
+if "phone_code_hash" not in st.session_state:
+    st.session_state.phone_code_hash = None
+
+# Sidebar config
 with st.sidebar:
     st.header("⚙️ Configuration")
     api_id = st.text_input("API_ID", type="password", help="Obtenu sur my.telegram.org/apps")
     api_hash = st.text_input("API_HASH", type="password", help="Obtenu sur my.telegram.org/apps")
+
+
+# Step 1: Enter phone number
+if st.session_state.step == "config":
+    st.subheader("📱 Étape 1 : Connexion")
     phone = st.text_input("Numéro de téléphone", placeholder="+33612345678")
-    connect_btn = st.button("🔗 Se connecter", type="primary")
 
+    if st.button("📨 Envoyer le code", type="primary"):
+        if not api_id or not api_hash or not phone:
+            st.error("❌ Remplis tous les champs.")
+        else:
+            with st.spinner("Connexion à Telegram..."):
+                try:
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
 
-async def get_dialogs(api_id_val, api_hash_val):
-    """Fetch all dialogs (channels + groups) using Telethon."""
-    client = TelegramClient("session", int(api_id_val), api_hash_val)
-    await client.start()
+                    client = TelegramClient("session", int(api_id), api_hash)
+                    loop.run_until_complete(client.connect())
+
+                    result = loop.run_until_complete(client.send_code_request(phone))
+                    st.session_state.client = client
+                    st.session_state.phone = phone
+                    st.session_state.phone_code_hash = result.phone_code_hash
+                    st.session_state.step = "code"
+                    st.rerun()
+
+                except Exception as e:
+                    st.error(f"❌ Erreur: {e}")
+
+# Step 2: Enter verification code
+elif st.session_state.step == "code":
+    st.subheader("🔑 Étape 2 : Code de vérification")
+    st.info(f"📲 Un code a été envoyé à **{st.session_state.phone}**")
+
+    code = st.text_input("Entre le code reçu", placeholder="12345")
+
+    if st.button("✅ Vérifier", type="primary"):
+        if not code:
+            st.error("❌ Entre le code.")
+        else:
+            with st.spinner("Vérification..."):
+                try:
+                    client = st.session_state.client
+                    loop = asyncio.get_event_loop()
+                    loop.run_until_complete(client.sign_in(
+                        phone=st.session_state.phone,
+                        code=code,
+                        phone_code_hash=st.session_state.phone_code_hash
+                    ))
+                    st.session_state.step = "done"
+                    st.rerun()
+
+                except Exception as e:
+                    st.error(f"❌ Erreur: {e}")
+                    st.info("💡 Si on te demande un mot de passe 2FA, entre-le ci-dessous.")
+                    st.session_state.step = "password"
+                    st.rerun()
+
+# Step 2b: 2FA password
+elif st.session_state.step == "password":
+    st.subheader("🔐 Mot de passe 2FA")
+    password = st.text_input("Mot de passe", type="password")
+
+    if st.button("✅ Se connecter", type="primary"):
+        with st.spinner("Vérification..."):
+            try:
+                client = st.session_state.client
+                loop = asyncio.get_event_loop()
+                loop.run_until_complete(client.sign_in(password=password))
+                st.session_state.step = "done"
+                st.rerun()
+            except Exception as e:
+                st.error(f"❌ Erreur: {e}")
+
+# Step 3: Show channels
+elif st.session_state.step == "done":
+    st.success("✅ Connecté !")
+
+    client = st.session_state.client
+    loop = asyncio.get_event_loop()
 
     channels = []
     groups = []
 
-    async for dialog in client.iter_dialogs():
-        entity = dialog.entity
-        if isinstance(entity, Channel):
-            if entity.megagroup:
-                groups.append({
-                    "id": entity.id,
-                    "title": entity.title,
-                    "members": getattr(dialog, "unread_count", "N/A"),
-                    "type": "🔵 Supergroupe"
-                })
-            else:
-                channels.append({
-                    "id": entity.id,
-                    "title": entity.title,
-                    "members": getattr(dialog, "unread_count", "N/A"),
-                    "type": "📢 Channel"
-                })
-        elif isinstance(entity, Chat):
-            groups.append({
-                "id": entity.id,
-                "title": entity.title,
-                "members": getattr(dialog, "unread_count", "N/A"),
-                "type": "💬 Groupe"
-            })
+    with st.spinner("Chargement des channels..."):
+        async def fetch_dialogs():
+            async for dialog in client.iter_dialogs():
+                entity = dialog.entity
+                if isinstance(entity, Channel):
+                    if entity.megagroup:
+                        groups.append({"id": entity.id, "title": entity.title, "type": "🔵 Supergroupe"})
+                    else:
+                        channels.append({"id": entity.id, "title": entity.title, "type": "📢 Channel"})
+                elif isinstance(entity, Chat):
+                    groups.append({"id": entity.id, "title": entity.title, "type": "💬 Groupe"})
 
-    await client.disconnect()
-    return channels, groups
+        loop.run_until_complete(fetch_dialogs())
 
+    # Stats
+    col1, col2, col3 = st.columns(3)
+    col1.metric("📢 Channels", len(channels))
+    col2.metric("💬 Groupes", len(groups))
+    col3.metric("📊 Total", len(channels) + len(groups))
 
-if connect_btn:
-    if not api_id or not api_hash:
-        st.error("❌ Remplis API_ID et API_HASH dans la barre latérale.")
-    else:
-        with st.spinner("Connexion en cours..."):
-            try:
-                channels, groups = asyncio.run(get_dialogs(api_id, api_hash))
+    st.divider()
 
-                # Stats
-                col1, col2, col3 = st.columns(3)
-                col1.metric("📢 Channels", len(channels))
-                col2.metric("💬 Groupes", len(groups))
-                col3.metric("📊 Total", len(channels) + len(groups))
+    # Channels table
+    if channels:
+        st.subheader(f"📢 Channels ({len(channels)})")
+        st.dataframe(channels, use_container_width=True, hide_index=True)
 
-                st.divider()
+    # Groups table
+    if groups:
+        st.subheader(f"💬 Groupes ({len(groups)})")
+        st.dataframe(groups, use_container_width=True, hide_index=True)
 
-                # Channels table
-                if channels:
-                    st.subheader(f"📢 Channels ({len(channels)})")
-                    st.dataframe(
-                        channels,
-                        column_config={
-                            "id": st.column_config.NumberColumn("ID", width="medium"),
-                            "title": st.column_config.TextColumn("Nom", width="large"),
-                            "type": st.column_config.TextColumn("Type", width="small"),
-                        },
-                        use_container_width=True,
-                        hide_index=True,
-                    )
+    # CSV download
+    st.divider()
+    all_items = channels + groups
+    if all_items:
+        import pandas as pd
+        df = pd.DataFrame(all_items)
+        csv = df.to_csv(index=False).encode("utf-8")
+        st.download_button("📥 Télécharger en CSV", csv, "telegram_channels.csv", "text/csv")
 
-                # Groups table
-                if groups:
-                    st.subheader(f"💬 Groupes ({len(groups)})")
-                    st.dataframe(
-                        groups,
-                        column_config={
-                            "id": st.column_config.NumberColumn("ID", width="medium"),
-                            "title": st.column_config.TextColumn("Nom", width="large"),
-                            "type": st.column_config.TextColumn("Type", width="small"),
-                        },
-                        use_container_width=True,
-                        hide_index=True,
-                    )
-
-                # Download as CSV
-                st.divider()
-                all_items = channels + groups
-                if all_items:
-                    import pandas as pd
-                    df = pd.DataFrame(all_items)
-                    csv = df.to_csv(index=False).encode("utf-8")
-                    st.download_button(
-                        "📥 Télécharger en CSV",
-                        csv,
-                        "telegram_channels.csv",
-                        "text/csv",
-                        type="secondary",
-                    )
-
-            except Exception as e:
-                st.error(f"❌ Erreur: {e}")
-                st.info("💡 Assure-toi que ton API_ID et API_HASH sont corrects.")
+    # Disconnect button
+    if st.button("🔌 Se déconnecter"):
+        loop.run_until_complete(client.disconnect())
+        for key in list(st.session_state.keys()):
+            del st.session_state[key]
+        st.rerun()
