@@ -36,6 +36,8 @@ def score_channels(channel_results: Dict[int, dict]) -> List[ChannelScore]:
     Returns:
         Sorted list of ChannelScore objects (best first)
     """
+    MAX_REALISTIC_RR = 50  # Cap R:R ratio to realistic max for gold scalping
+    
     scores = []
     
     for ch_id, data in channel_results.items():
@@ -43,28 +45,31 @@ def score_channels(channel_results: Dict[int, dict]) -> List[ChannelScore]:
         if not signals:
             continue
         
-        wins = sum(1 for s in signals if s.get("result", "").startswith("TP"))
-        losses = sum(1 for s in signals if s.get("result") == "SL")
+        # Only count completed signals (TP or SL), exclude OPEN
+        completed = [s for s in signals if s.get("result", "") in ("TP1", "TP2", "TP3", "SL")]
+        wins = sum(1 for s in completed if s.get("result", "").startswith("TP"))
+        losses = sum(1 for s in completed if s.get("result") == "SL")
         opens = sum(1 for s in signals if s.get("result") == "OPEN")
-        total = wins + losses  # only completed signals count
+        total = wins + losses
         
         win_rate = (wins / total * 100) if total > 0 else 0
         
-        pnl_values = [s.get("pnl_pips", 0) for s in signals if s.get("result") != "OPEN"]
+        # PnL only from completed signals
+        pnl_values = [s.get("pnl_pips", 0) for s in completed]
         avg_pnl = sum(pnl_values) / len(pnl_values) if pnl_values else 0
         total_pnl = sum(pnl_values)
         
         best = max(pnl_values) if pnl_values else 0
         worst = min(pnl_values) if pnl_values else 0
         
-        # Risk/Reward ratio
+        # Risk/Reward ratio — capped to avoid absurd values
         avg_win = sum(p for p in pnl_values if p > 0) / max(wins, 1)
         avg_loss = abs(sum(p for p in pnl_values if p < 0)) / max(losses, 1)
-        rr_ratio = avg_win / avg_loss if avg_loss > 0 else 0
+        rr_ratio = min(avg_win / avg_loss, MAX_REALISTIC_RR) if avg_loss > 0 else 0
         
         # Average time to result
         times = []
-        for s in signals:
+        for s in completed:
             if s.get("tp1_time") and s.get("timestamp"):
                 diff = (s["tp1_time"] - s["timestamp"]).total_seconds() / 3600
                 times.append(diff)
