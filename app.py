@@ -4,7 +4,7 @@ Analyse et classe les channels Telegram de trading gold par rentabilité.
 """
 
 import asyncio
-import threading
+import concurrent.futures
 import streamlit as st
 import pandas as pd
 from datetime import datetime
@@ -18,56 +18,55 @@ from backtester import scan_channel_quick, run_full_analysis
 from scorer import ChannelScore, score_channels, format_score_report
 
 
-# === Dedicated Event Loop Thread ===
-# Streamlit runs each script rerun in a new thread (ScriptRunner.scriptThread)
-# which has NO event loop. We run a persistent loop in a daemon thread.
+# === Sync Telethon Wrapper ===
+# Chaque appel crée son propre event loop dans un thread séparé.
+# Le fichier gold_session.session persiste l'auth entre les appels.
 
-_loop = None
-_loop_thread = None
-
-
-def get_loop():
-    global _loop, _loop_thread
-    if _loop is None or _loop.is_closed():
-        _loop = asyncio.new_event_loop()
-
-        def _run_loop():
-            asyncio.set_event_loop(_loop)
-            _loop.run_forever()
-
-        _loop_thread = threading.Thread(target=_run_loop, daemon=True)
-        _loop_thread.start()
-    return _loop
+_executor = concurrent.futures.ThreadPoolExecutor(max_workers=2)
 
 
-def run_async(coro):
-    loop = get_loop()
-    future = asyncio.run_coroutine_threadsafe(coro, loop)
-    return future.result(timeout=180)
+def run_telethon(coro_func, *args, **kwargs):
+    """Exécute une coroutine Telethon dans un thread avec son propre event loop."""
+    def _wrapper():
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            return loop.run_until_complete(coro_func(*args, **kwargs))
+        finally:
+            loop.run_until_complete(loop.shutdown_asyncgens())
+            loop.close()
+    return _executor.submit(_wrapper).result(timeout=180)
 
 
 # === Async helpers (all Telethon calls go through here) ===
 
-async def _create_and_connect(api_id_val: int, api_hash_val: str):
+async def _send_code(api_id_val: int, api_hash_val: str, phone: str):
     client = TelegramClient("gold_session", api_id_val, api_hash_val)
     await client.connect()
-    return client
+    try:
+        result = await client.send_code_request(phone)
+        return result
+    finally:
+        await client.disconnect()
 
 
-async def _send_code(client: TelegramClient, phone: str):
-    return await client.send_code_request(phone)
+async def _sign_in_code(api_id_val: int, api_hash_val: str, phone: str, code: str, phone_code_hash: str):
+    client = TelegramClient("gold_session", api_id_val, api_hash_val)
+    await client.connect()
+    try:
+        await client.sign_in(phone=phone, code=code, phone_code_hash=phone_code_hash)
+    finally:
+        await client.disconnect()
 
 
-async def _sign_in_code(client, phone, code, phone_code_hash):
-    return await client.sign_in(phone=phone, code=code, phone_code_hash=phone_code_hash)
+async def _sign_in_password(api_id_val: int, api_hash_val: str, password: str):
+    client = TelegramClient("gold_session", api_id_val, api_hash_val)
+    await client.connect()
+    try:
+        await client.sign_in(password=password)
+    finally:
+        await client.disconnect()
 
-
-async def _sign_in_password(client, password):
-    return await client.sign_in(password=password)
-
-
-async def _disconnect(client):
-    await client.disconnect()
 
 
 # === Page Config ===
@@ -84,12 +83,14 @@ st.markdown("Analyse et classe tes channels Telegram de trading gold par rentabi
 defaults = {
     "step": "config",
     "phone": "",
-    "client": None,
+    "api_id": "",
+    "api_hash": "",
     "channels": [],
     "trading_channels": [],
     "selected_channels": {},
     "analysis_results": None,
     "phone_code_hash": "",
+    "logged_in": False,
 }
 for k, v in defaults.items():
     if k not in st.session_state:
@@ -130,10 +131,10 @@ if st.session_state.step == "config":
             else:
                 with st.spinner("Connexion à Telegram..."):
                     try:
-                        client = run_async(_create_and_connect(int(api_id), api_hash))
-                        result = run_async(_send_code(client, phone))
-                        st.session_state.client = client
+                        result = run_telethon(_send_code, int(api_id), api_hash, phone)
                         st.session_state.phone = phone
+                        st.session_state.api_id = api_id
+                        st.session_state.api_hash = api_hash
                         st.session_state.phone_code_hash = result.phone_code_hash
                         st.session_state.step = "code"
                         st.rerun()
@@ -162,11 +163,15 @@ elif st.session_state.step == "code":
             else:
                 with st.spinner("Vérification..."):
                     try:
-                        client = st.session_state.client
-                        run_async(_sign_in_code(
-                            client, st.session_state.phone,
-                            code, st.session_state.phone_code_hash
-                        ))
+                        run_telethon(
+                            _sign_in_code,
+                            int(st.session_state.api_id),
+                            st.session_state.api_hash,
+                            st.session_state.phone,
+                            code,
+                            st.session_state.phone_code_hash
+                        )
+                        st.session_state.logged_in = True
                         st.session_state.step = "scanning"
                         st.rerun()
                     except Exception as e:
@@ -189,8 +194,13 @@ elif st.session_state.step == "password":
     if st.button("✅ Se connecter", type="primary"):
         with st.spinner("Vérification..."):
             try:
-                client = st.session_state.client
-                run_async(_sign_in_password(client, password))
+                run_telethon(
+                    _sign_in_password,
+                    int(st.session_state.api_id),
+                    st.session_state.api_hash,
+                    password
+                )
+                st.session_state.logged_in = True
                 st.session_state.step = "scanning"
                 st.rerun()
             except Exception as e:
@@ -200,12 +210,14 @@ elif st.session_state.step == "password":
 # === STEP 3: Scan Channels ===
 elif st.session_state.step == "scanning":
     st.subheader("🔍 Scan de tes channels...")
-    client = st.session_state.client
 
-    with st.spinner("Chargement des channels..."):
-        channels = []
-
-        async def fetch_all():
+    async def _scan_all_channels():
+        """Tout le scan dans une seule coroutine — un seul event loop, un seul client."""
+        client = TelegramClient("gold_session", int(st.session_state.api_id), st.session_state.api_hash)
+        await client.start()
+        try:
+            # 1) Récupérer tous les channels
+            channels = []
             async for dialog in client.iter_dialogs():
                 entity = dialog.entity
                 if isinstance(entity, Channel):
@@ -218,29 +230,26 @@ elif st.session_state.step == "scanning":
                         "likely_trading": is_likely_trading_channel(entity.title)
                     })
 
-        run_async(fetch_all())
+            # 2) Scanner chaque channel pour les signaux
+            trading_channels = []
+            for ch in channels:
+                scan = await scan_channel_quick(client, ch["id"])
+                if scan.get("has_signals"):
+                    trading_channels.append({
+                        **ch,
+                        "signal_count": scan["sample_count"],
+                        "format": scan["format"],
+                        "total_messages": scan.get("total_messages", 0)
+                    })
+
+            return channels, trading_channels
+        finally:
+            await client.disconnect()
+
+    with st.spinner("Connexion et scan des channels..."):
+        channels, trading_channels = run_telethon(_scan_all_channels)
 
     st.session_state.channels = channels
-    st.info("Scan rapide des channels pour détecter les signaux de trading...")
-
-    trading_channels = []
-    progress = st.progress(0)
-
-    for i, ch in enumerate(channels):
-        progress.progress(
-            (i + 1) / len(channels),
-            text=f"Scan: {ch['title'][:30]}..."
-        )
-        scan = run_async(scan_channel_quick(client, ch["id"]))
-        if scan.get("has_signals"):
-            trading_channels.append({
-                **ch,
-                "signal_count": scan["sample_count"],
-                "format": scan["format"],
-                "total_messages": scan.get("total_messages", 0)
-            })
-
-    progress.empty()
     st.session_state.trading_channels = trading_channels
     st.session_state.step = "select"
     st.rerun()
@@ -286,7 +295,6 @@ elif st.session_state.step == "select":
                 st.rerun()
         with col2:
             if st.button("🔌 Se déconnecter"):
-                run_async(_disconnect(st.session_state.client))
                 for key in list(st.session_state.keys()):
                     del st.session_state[key]
                 st.rerun()
@@ -295,7 +303,6 @@ elif st.session_state.step == "select":
 # === STEP 5: Full Analysis ===
 elif st.session_state.step == "analyzing":
     st.subheader("🔬 Analyse en cours...")
-    client = st.session_state.client
     selected = st.session_state.selected_channels
     days = analysis_days
     progress = st.progress(0)
@@ -308,9 +315,19 @@ elif st.session_state.step == "analyzing":
     with st.spinner("Récupération des prix gold..."):
         gold_prices = fetch_gold_prices(days=days + 5, interval="1h")
 
-    results = run_async(run_full_analysis(
-        client, selected, days, progress_callback=update_progress
-    ))
+    async def _run_full():
+        """Analyse complète dans une seule coroutine."""
+        client = TelegramClient("gold_session", int(st.session_state.api_id), st.session_state.api_hash)
+        await client.start()
+        try:
+            return await run_full_analysis(
+                client, selected, days, progress_callback=update_progress
+            )
+        finally:
+            await client.disconnect()
+
+    results = run_telethon(_run_full)
+
     progress.empty()
     status.empty()
     st.session_state.analysis_results = results
@@ -426,8 +443,6 @@ elif st.session_state.step == "results":
                 st.rerun()
         with col2:
             if st.button("🔌 Se déconnecter"):
-                run_async(_disconnect(st.session_state.client))
                 for key in list(st.session_state.keys()):
                     del st.session_state[key]
                 st.rerun()
-                        
