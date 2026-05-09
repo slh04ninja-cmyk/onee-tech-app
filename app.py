@@ -325,8 +325,11 @@ elif st.session_state.step == "analyzing":
     status = st.empty()
 
     def update_progress(current, total, name):
-        progress.progress(current / total, text=f"Analyse: {name[:30]}...")
-        status.text(f"{current}/{total} — {name}")
+        try:
+            progress.progress(current / total, text=f"Analyse: {name[:30]}...")
+            status.text(f"{current}/{total} — {name}")
+        except Exception:
+            pass  # NoSessionContext when called from thread worker
 
     with st.spinner("Récupération des prix gold..."):
         gold_prices = fetch_gold_prices(days=days + 5, interval="1h")
