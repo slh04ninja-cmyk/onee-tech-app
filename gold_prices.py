@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 from typing import Optional
 
 
-def fetch_gold_prices(days: int = 30, interval: str = "1h") -> pd.DataFrame:
+def fetch_gold_prices(days: int = 30, interval: str = "1m") -> pd.DataFrame:
     """
     Fetch XAUUSD price data.
     
@@ -18,7 +18,21 @@ def fetch_gold_prices(days: int = 30, interval: str = "1h") -> pd.DataFrame:
     
     Returns:
         DataFrame with columns: Open, High, Low, Close, Volume
+        
+    Note: yfinance limits intraday data:
+        - 1m: max 7 days
+        - 5m: max 60 days
+        - 15m/30m: max 60 days
+        - 1h: max 730 days
     """
+    # Auto-select interval based on days requested
+    if interval == "1m" and days > 7:
+        interval = "5m"  # fallback for longer periods
+    if interval == "5m" and days > 60:
+        interval = "15m"
+    if interval in ("1m", "5m", "15m") and days > 60:
+        interval = "1h"
+    
     ticker = yf.Ticker("GC=F")  # Gold futures
     
     end = datetime.now()
@@ -30,6 +44,15 @@ def fetch_gold_prices(days: int = 30, interval: str = "1h") -> pd.DataFrame:
         # Fallback: try with different ticker
         ticker = yf.Ticker("XAUUSD=X")
         df = ticker.history(start=start, end=end, interval=interval)
+    
+    if df.empty:
+        # Fallback: try with longer interval
+        if interval == "1m":
+            return fetch_gold_prices(days, "5m")
+        elif interval == "5m":
+            return fetch_gold_prices(days, "15m")
+        elif interval in ("15m", "30m"):
+            return fetch_gold_prices(days, "1h")
     
     # Normalize columns
     df = df[["Open", "High", "Low", "Close", "Volume"]].copy()

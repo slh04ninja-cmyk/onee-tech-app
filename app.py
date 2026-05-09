@@ -379,7 +379,7 @@ elif st.session_state.step == "analyzing":
             pass  # NoSessionContext when called from thread worker
 
     with st.spinner("Récupération des prix gold..."):
-        gold_prices = fetch_gold_prices(days=days + 5, interval="1h")
+        gold_prices = fetch_gold_prices(days=days + 5, interval="1m")
 
     _api_id = validate_api_id(st.session_state.api_id)
     _api_hash = st.session_state.api_hash

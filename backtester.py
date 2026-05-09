@@ -98,7 +98,7 @@ async def analyze_channel_full(client: TelegramClient, channel_id: int,
     
     # Fetch gold prices if not provided
     if gold_prices is None:
-        gold_prices = fetch_gold_prices(days=days + 5, interval="1h")
+        gold_prices = fetch_gold_prices(days=days + 5, interval="1m")
     
     # Backtest each signal
     results = []
@@ -162,7 +162,7 @@ async def run_full_analysis(client: TelegramClient,
         List of ChannelScore objects, sorted by score
     """
     # Fetch gold prices once
-    gold_prices = fetch_gold_prices(days=days + 5, interval="1h")
+    gold_prices = fetch_gold_prices(days=days + 5, interval="1m")
     
     channel_results = {}
     total = len(channel_ids)
