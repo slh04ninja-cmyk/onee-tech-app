@@ -5,6 +5,7 @@ Analyse et classe les channels Telegram de trading gold par rentabilité.
 
 import streamlit as st
 import asyncio
+import threading
 import pandas as pd
 from datetime import datetime
 from io import BytesIO
@@ -15,6 +16,31 @@ from signal_parser import parse_signal, TradeSignal
 from gold_prices import fetch_gold_prices, check_tp_sl_hit
 from backtester import scan_channel_quick, run_full_analysis
 from scorer import ChannelScore, score_channels, format_score_report
+
+# === Dedicated Event Loop Thread ===
+# Streamlit reruns scripts in new threads, killing the event loop.
+# Solution: run a persistent event loop in a background thread.
+
+_loop = None
+_loop_thread = None
+
+def get_loop():
+    """Get or create a persistent event loop running in a background thread."""
+    global _loop, _loop_thread
+    if _loop is None or _loop.is_closed():
+        _loop = asyncio.new_event_loop()
+        def _run_loop():
+            asyncio.set_event_loop(_loop)
+            _loop.run_forever()
+        _loop_thread = threading.Thread(target=_run_loop, daemon=True)
+        _loop_thread.start()
+    return _loop
+
+def run_async(coro):
+    """Run an async coroutine from the Streamlit thread."""
+    loop = get_loop()
+    future = asyncio.run_coroutine_threadsafe(coro, loop)
+    return future.result(timeout=120)
 
 # === Page Config ===
 st.set_page_config(
@@ -34,24 +60,11 @@ defaults = {
     "channels": [],
     "trading_channels": [],
     "selected_channels": {},
-    "analysis_results": None,
-    "loop": None
+    "analysis_results": None
 }
 for k, v in defaults.items():
     if k not in st.session_state:
         st.session_state[k] = v
-
-
-def get_loop():
-    if st.session_state.loop is None:
-        st.session_state.loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(st.session_state.loop)
-    return st.session_state.loop
-
-
-def run_async(coro):
-    loop = get_loop()
-    return loop.run_until_complete(coro)
 
 
 # === Sidebar ===
