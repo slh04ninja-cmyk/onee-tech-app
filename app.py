@@ -18,6 +18,29 @@ from backtester import scan_channel_quick, run_full_analysis
 from scorer import ChannelScore, score_channels, format_score_report
 
 
+# === API_ID Validation ===
+
+def validate_api_id(raw: str) -> int:
+    """Valide et retourne l'API_ID Telegram (doit être un entier 32-bit signé)."""
+    try:
+        val = int(str(raw).strip())
+    except (ValueError, TypeError):
+        raise ValueError(
+            "API_ID doit être un nombre entier (ex: 12345678). "
+            "Tu as peut-être entré l'API_HASH à la place. "
+            "Trouve-le sur my.telegram.org/apps"
+        )
+    if not (-2147483648 <= val <= 2147483647):
+        raise ValueError(
+            f"API_ID ({val}) est trop grand. Tu as probablement entré l'API_HASH "
+            "(qui est un code hexadécimal) à la place de l'API_ID. "
+            "L'API_ID est un nombre court comme 12345678."
+        )
+    if val == 0:
+        raise ValueError("API_ID ne peut pas être 0. Obtien-le sur my.telegram.org/apps")
+    return val
+
+
 # === Sync Telethon Wrapper ===
 # Chaque appel crée son propre event loop dans un thread séparé.
 # Le fichier gold_session.session persiste l'auth entre les appels.
@@ -132,9 +155,14 @@ if st.session_state.step == "config":
             if not api_id or not api_hash or not phone:
                 st.error("Remplis tous les champs dans la sidebar.")
             else:
+                try:
+                    _api_id = validate_api_id(api_id)
+                except ValueError as e:
+                    st.error(str(e))
+                    st.stop()
                 with st.spinner("Connexion à Telegram..."):
                     try:
-                        result = run_telethon(_send_code, int(api_id), api_hash, phone)
+                        result = run_telethon(_send_code, _api_id, api_hash, phone)
                         st.session_state.phone = phone
                         st.session_state.api_id = api_id
                         st.session_state.api_hash = api_hash
@@ -173,7 +201,7 @@ elif st.session_state.step == "code":
                     try:
                         run_telethon(
                             _sign_in_code,
-                            int(st.session_state.api_id),
+                            validate_api_id(st.session_state.api_id),
                             st.session_state.api_hash,
                             st.session_state.phone,
                             code,
@@ -204,7 +232,7 @@ elif st.session_state.step == "password":
             try:
                 run_telethon(
                     _sign_in_password,
-                    int(st.session_state.api_id),
+                    validate_api_id(st.session_state.api_id),
                     st.session_state.api_hash,
                     password
                 )
@@ -225,7 +253,7 @@ elif st.session_state.step == "scanning":
         st.rerun()
         st.stop()
 
-    _api_id = int(st.session_state.api_id)
+    _api_id = validate_api_id(st.session_state.api_id)
     _api_hash = st.session_state.api_hash
 
     async def _scan_all_channels(api_id_val, api_hash_val):
@@ -334,7 +362,7 @@ elif st.session_state.step == "analyzing":
     with st.spinner("Récupération des prix gold..."):
         gold_prices = fetch_gold_prices(days=days + 5, interval="1h")
 
-    _api_id = int(st.session_state.api_id)
+    _api_id = validate_api_id(st.session_state.api_id)
     _api_hash = st.session_state.api_hash
     selected = st.session_state.selected_channels
 
