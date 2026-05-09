@@ -128,9 +128,11 @@ for k, v in defaults.items():
 with st.sidebar:
     st.header("⚙️ Configuration")
     api_id = st.text_input("API_ID", type="password",
-                           help="Obtenu sur my.telegram.org/apps")
+                           value=st.session_state.get("api_id", ""),
+                           help="Nombre entier (ex: 12345678). Obtu sur my.telegram.org/apps")
     api_hash = st.text_input("API_HASH", type="password",
-                             help="Obtenu sur my.telegram.org/apps")
+                             value=st.session_state.get("api_hash", ""),
+                             help="Code hexadécimal (ex: a1b2c3d4...). Obtu sur my.telegram.org/apps")
     st.divider()
     st.header("📊 Paramètres d'analyse")
     analysis_days = st.slider("Jours d'historique", 7, 90, 30)
@@ -177,7 +179,18 @@ if st.session_state.step == "config":
                             st.session_state.step = "code"
                         st.rerun()
                     except Exception as e:
-                        st.error(f"Erreur: {e}")
+                        err_msg = str(e)
+                        if "api_id" in err_msg.lower() or "api_hash" in err_msg.lower() or "invalid" in err_msg.lower():
+                            st.error(
+                                f"❌ **API_ID/API_HASH invalide**\n\n"
+                                f"Vérifie que tu as bien copié les bonnes valeurs sur "
+                                f"[my.telegram.org/apps](https://my.telegram.org/apps):\n"
+                                f"- **API_ID** = un nombre entier court (ex: `12345678`)\n"
+                                f"- **API_HASH** = un code hexadécimal de 32 caractères (ex: `a1b2c3d4e5f6...`)\n\n"
+                                f"⚠️ Ne les inverse pas !"
+                            )
+                        else:
+                            st.error(f"Erreur: {e}")
     with col2:
         st.info("""
         **Comment obtenir API_ID?**
