@@ -467,16 +467,24 @@ elif st.session_state.step == "results":
                     c3.metric("PnL Total", f"{s.total_pnl_pips:+.0f} pips")
                     c4.metric("R:R", s.risk_reward_ratio)
                     if s.signals:
-                        sig_data = [{
-                            "Date": sig.get("timestamp", "N/A"),
-                            "Direction": sig.get("direction", "?"),
-                            "Entry": sig.get("entry", 0),
-                            "TP1": sig.get("tp1", "—"),
-                            "SL": sig.get("sl", "—"),
-                            "Résultat": sig.get("result", "?"),
-                            "PnL (pips)": f"{sig.get('pnl_pips', 0):+.0f}",
-                            "Confiance": f"{sig.get('confidence', 0):.0%}"
-                        } for sig in s.signals]
+                        # Dynamically detect max TPs across all signals
+                        max_tps = max((len(sig.get("tps", [])) for sig in s.signals), default=0)
+                        sig_data = []
+                        for sig in s.signals:
+                            row = {
+                                "Date": sig.get("timestamp", "N/A"),
+                                "Direction": sig.get("direction", "?"),
+                                "Entry": sig.get("entry", 0),
+                            }
+                            # Add all TP columns dynamically
+                            tps = sig.get("tps", [])
+                            for i in range(max_tps):
+                                row[f"TP{i+1}"] = tps[i] if i < len(tps) else "—"
+                            row["SL"] = sig.get("sl", "—")
+                            row["Résultat"] = sig.get("result", "?")
+                            row["PnL (pips)"] = f"{sig.get('pnl_pips', 0):+.0f}"
+                            row["Confiance"] = f"{sig.get('confidence', 0):.0%}"
+                            sig_data.append(row)
                         st.dataframe(pd.DataFrame(sig_data),
                                      use_container_width=True, hide_index=True)
 

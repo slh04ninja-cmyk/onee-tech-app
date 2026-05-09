@@ -1,11 +1,12 @@
 """
 Signal Parser - Extrait les signaux de trading gold depuis différents formats.
 Supporte les formats courants des channels Telegram de trading.
+Supporte un nombre dynamique de TP (TP1, TP2, ..., TPn).
 """
 
 import re
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Optional, List
 from datetime import datetime
 
 
@@ -13,82 +14,135 @@ from datetime import datetime
 class TradeSignal:
     direction: str  # "BUY" or "SELL"
     entry: float
-    tp1: Optional[float] = None
-    tp2: Optional[float] = None
-    tp3: Optional[float] = None
+    tps: List[float] = field(default_factory=list)  # [TP1, TP2, ..., TPn]
     sl: Optional[float] = None
     pair: str = "XAUUSD"
     raw_text: str = ""
     timestamp: Optional[datetime] = None
     confidence: float = 0.0  # 0-1, how confident we are in the parse
 
+    @property
+    def tp1(self) -> Optional[float]:
+        return self.tps[0] if len(self.tps) >= 1 else None
+
+    @property
+    def tp2(self) -> Optional[float]:
+        return self.tps[1] if len(self.tps) >= 2 else None
+
+    @property
+    def tp3(self) -> Optional[float]:
+        return self.tps[2] if len(self.tps) >= 3 else None
+
+
+def _extract_all_tps(text: str) -> List[float]:
+    """
+    Extract ALL take-profit levels from text dynamically.
+    Matches TP1, TP2, ..., TP99, TAKE PROFIT 1, etc.
+    Returns sorted list by TP number.
+    """
+    tps = {}
+
+    # Pattern 1: TP followed by number (TP1, TP2, TP10, etc.)
+    for match in re.finditer(r'TP\s*(\d+)\s*[:\s]*(\d+\.?\d*)', text, re.IGNORECASE):
+        tp_num = int(match.group(1))
+        tp_val = float(match.group(2))
+        if 1000 <= tp_val <= 5000:  # gold price range
+            tps[tp_num] = tp_val
+
+    # Pattern 2: TAKE PROFIT followed by number
+    for match in re.finditer(r'TAKE\s*PROFIT\s*(\d+|ONE|TWO|THREE|FOUR|FIVE|SIX|SEVEN|EIGHT|NINE|TEN)?\s*[:\s]*(\d+\.?\d*)', text, re.IGNORECASE):
+        word_to_num = {"ONE": 1, "TWO": 2, "THREE": 3, "FOUR": 4, "FIVE": 5,
+                       "SIX": 6, "SEVEN": 7, "EIGHT": 8, "NINE": 9, "TEN": 10}
+        num_str = match.group(1)
+        if num_str:
+            tp_num = word_to_num.get(num_str.upper(), int(num_str) if num_str.isdigit() else 1)
+        else:
+            tp_num = 1
+        tp_val = float(match.group(2))
+        if 1000 <= tp_val <= 5000:
+            tps[tp_num] = tp_val
+
+    # Pattern 3: ✅ followed by TP (common in signal channels)
+    for match in re.finditer(r'✅\s*TP\s*(\d+)\s*[:\s]*(\d+\.?\d*)', text, re.IGNORECASE):
+        tp_num = int(match.group(1))
+        tp_val = float(match.group(2))
+        if 1000 <= tp_val <= 5000:
+            tps[tp_num] = tp_val
+
+    # Pattern 4: Just "TP:" without number (single TP) — only if no numbered TPs found
+    if not tps:
+        match = re.search(r'TP[:\s]*(\d+\.?\d*)', text, re.IGNORECASE)
+        if match:
+            tp_val = float(match.group(1))
+            if 1000 <= tp_val <= 5000:
+                tps[1] = tp_val
+
+    # Return sorted by TP number
+    return [tps[k] for k in sorted(tps.keys())]
+
 
 def parse_signal(text: str, timestamp: Optional[datetime] = None) -> Optional[TradeSignal]:
     """Parse a trading signal from text. Returns None if not a signal."""
     text_upper = text.upper().strip()
-    
+
     # Skip non-signal messages
-    skip_words = ["GOOD MORNING", "GOOD NIGHT", "HELLO", "WELCOME", "THANK", 
+    skip_words = ["GOOD MORNING", "GOOD NIGHT", "HELLO", "WELCOME", "THANK",
                   "RECAP", "RESULT", "EDUCATION", "MOTIVATION", "PIPS",
                   "JOIN", "VIP", "SUBSCRIBE", "PREMIUM", "SIGNAL WILL",
                   "ANALYSIS ONLY", "NOT SIGNAL"]
     if any(w in text_upper for w in skip_words) and not any(w in text_upper for w in ["BUY", "SELL", "LONG", "SHORT"]):
         return None
-    
+
     # Detect direction
     direction = None
     if re.search(r'\b(BUY|LONG|BULLISH)\b', text_upper):
         direction = "BUY"
     elif re.search(r'\b(SELL|SHORT|BEARISH)\b', text_upper):
         direction = "SELL"
-    
+
     if not direction:
         return None
-    
+
     # Extract prices - various formats
-    # Format 1: Entry/TP/SL labels
     entry = _extract_price(text, [r'ENTRY[:\s]*(\d+\.?\d*)', r'OPEN[:\s]*(\d+\.?\d*)',
                                    r'@[:\s]*(\d+\.?\d*)', r'ZONE[:\s]*(\d+\.?\d*[-–]\d+\.?\d*)',
                                    r'BUY[:\s]*(\d+\.?\d*)', r'SELL[:\s]*(\d+\.?\d*)',
                                    r'LONG[:\s]*(\d+\.?\d*)', r'SHORT[:\s]*(\d+\.?\d*)'])
-    
+
     # If no labeled entry, try to find a standalone price in gold range (1000-5000)
     if entry is None:
         entry = _extract_standalone_price(text)
-    
+
     if entry is None:
         return None
-    
-    # Extract TP levels
-    tp1 = _extract_price(text, [r'TP\s*1[:\s]*(\d+\.?\d*)', r'TP[:\s]*(\d+\.?\d*)',
-                                 r'TAKE\s*PROFIT\s*1?[:\s]*(\d+\.?\d*)',
-                                 r'TAKE\s*PROFIT\s*(?:1|ONE)?[:\s]*(\d+\.?\d*)'])
-    tp2 = _extract_price(text, [r'TP\s*2[:\s]*(\d+\.?\d*)', r'TAKE\s*PROFIT\s*2[:\s]*(\d+\.?\d*)',
-                                 r'TAKE\s*PROFIT\s*TWO[:\s]*(\d+\.?\d*)'])
-    tp3 = _extract_price(text, [r'TP\s*3[:\s]*(\d+\.?\d*)', r'TAKE\s*PROFIT\s*3[:\s]*(\d+\.?\d*)',
-                                 r'TAKE\s*PROFIT\s*THREE[:\s]*(\d+\.?\d*)'])
-    
-    # Extract SL
-    sl = _extract_price(text, [r'SL[:\s]*(\d+\.?\d*)', r'STOP\s*LOSS[:\s]*(\d+\.?\d*)',
-                                r'STOP[:\s]*(\d+\.?\d*)'])
-    
+
+    # Extract ALL TP levels dynamically
+    tps = _extract_all_tps(text)
+
+    # Extract SL — handle "(SL):", "SL:", "Stop Loss:", etc.
+    sl = _extract_price(text, [r'[\(]?SL[\)][:\s\-]*(\d+\.?\d*)',
+                                r'STOP\s*LOSS[:\s\-]*(\d+\.?\d*)',
+                                r'STOP[:\s\-]*(\d+\.?\d*)'])
+
     # Calculate confidence
     confidence = 0.3  # base for having direction + entry
-    if tp1: confidence += 0.3
-    if sl: confidence += 0.2
-    if tp2: confidence += 0.1
-    if tp3: confidence += 0.1
-    
+    if tps:
+        confidence += 0.3
+    if sl:
+        confidence += 0.2
+    if len(tps) >= 2:
+        confidence += 0.1
+    if len(tps) >= 3:
+        confidence += 0.1
+
     # Validate gold price range (roughly 1000-5000)
     if entry < 1000 or entry > 5000:
         return None
-    
+
     return TradeSignal(
         direction=direction,
         entry=entry,
-        tp1=tp1,
-        tp2=tp2,
-        tp3=tp3,
+        tps=tps,
         sl=sl,
         raw_text=text[:200],
         timestamp=timestamp,
@@ -115,7 +169,6 @@ def _extract_price(text: str, patterns: list) -> Optional[float]:
 
 def _extract_standalone_price(text: str) -> Optional[float]:
     """Extract a standalone gold price (1000-5000 range)."""
-    # Look for prices like 3250.50, 2650, etc.
     prices = re.findall(r'\b(\d{4}\.?\d{0,2})\b', text)
     for p in prices:
         val = float(p)
@@ -142,7 +195,7 @@ def detect_channel_format(messages: list) -> str:
         "emoji_based": 0,
         "free_text": 0
     }
-    
+
     for text, _ in messages[:30]:
         text_upper = text.upper()
         if re.search(r'ENTRY|TP\s*\d|SL|TAKE PROFIT|STOP LOSS', text_upper):
@@ -153,5 +206,5 @@ def detect_channel_format(messages: list) -> str:
             formats["emoji_based"] += 1
         elif re.search(r'(BUY|SELL|LONG|SHORT)', text_upper):
             formats["free_text"] += 1
-    
+
     return max(formats, key=formats.get) if max(formats.values()) > 0 else "unknown"
