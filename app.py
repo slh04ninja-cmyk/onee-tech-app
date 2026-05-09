@@ -43,7 +43,7 @@ def run_telethon(coro_func, *args, **kwargs):
 async def _send_code(api_id_val: int, api_hash_val: str, phone: str):
     client = TelegramClient("gold_session", api_id_val, api_hash_val)
     await client.connect()
-    if not client.is_connected():
+    if not client.connected:
         raise Exception("Impossible de se connecter à Telegram. Réessaie.")
     try:
         if await client.is_user_authorized():
@@ -58,7 +58,7 @@ async def _send_code(api_id_val: int, api_hash_val: str, phone: str):
 async def _sign_in_code(api_id_val: int, api_hash_val: str, phone: str, code: str, phone_code_hash: str):
     client = TelegramClient("gold_session", api_id_val, api_hash_val)
     await client.connect()
-    if not client.is_connected():
+    if not client.connected:
         raise Exception("Impossible de se connecter à Telegram. Réessaie.")
     try:
         await client.sign_in(phone=phone, code=code, phone_code_hash=phone_code_hash)
@@ -69,7 +69,7 @@ async def _sign_in_code(api_id_val: int, api_hash_val: str, phone: str, code: st
 async def _sign_in_password(api_id_val: int, api_hash_val: str, password: str):
     client = TelegramClient("gold_session", api_id_val, api_hash_val)
     await client.connect()
-    if not client.is_connected():
+    if not client.connected:
         raise Exception("Impossible de se connecter à Telegram. Réessaie.")
     try:
         await client.sign_in(password=password)
