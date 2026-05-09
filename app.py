@@ -5,6 +5,7 @@ Analyse et classe les channels Telegram de trading gold par rentabilité.
 
 import asyncio
 import concurrent.futures
+import os
 import streamlit as st
 import pandas as pd
 from datetime import datetime
@@ -170,6 +171,7 @@ if st.session_state.step == "config":
                             # Already authorized from previous session
                             st.session_state.logged_in = True
                             st.session_state.step = "scanning"
+                            st.toast("✅ Session Telegram existante — connexion automatique", icon="🔑")
                         else:
                             st.session_state.phone_code_hash = result.phone_code_hash
                             st.session_state.step = "code"
@@ -340,6 +342,10 @@ elif st.session_state.step == "select":
                 st.rerun()
         with col2:
             if st.button("🔌 Se déconnecter"):
+                # Supprimer la session Telegram pour forcer la reconnexion
+                for sess_file in ["gold_session.session", "gold_session.session-journal"]:
+                    if os.path.exists(sess_file):
+                        os.remove(sess_file)
                 for key in list(st.session_state.keys()):
                     del st.session_state[key]
                 st.rerun()
@@ -494,6 +500,9 @@ elif st.session_state.step == "results":
                 st.rerun()
         with col2:
             if st.button("🔌 Se déconnecter"):
+                for sess_file in ["gold_session.session", "gold_session.session-journal"]:
+                    if os.path.exists(sess_file):
+                        os.remove(sess_file)
                 for key in list(st.session_state.keys()):
                     del st.session_state[key]
                 st.rerun()
