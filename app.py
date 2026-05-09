@@ -43,7 +43,12 @@ def run_telethon(coro_func, *args, **kwargs):
 async def _send_code(api_id_val: int, api_hash_val: str, phone: str):
     client = TelegramClient("gold_session", api_id_val, api_hash_val)
     await client.connect()
+    if not client.is_connected():
+        raise Exception("Impossible de se connecter à Telegram. Réessaie.")
     try:
+        if await client.is_user_authorized():
+            # Already logged in from previous session
+            return None  # signals "already authorized"
         result = await client.send_code_request(phone)
         return result
     finally:
@@ -53,6 +58,8 @@ async def _send_code(api_id_val: int, api_hash_val: str, phone: str):
 async def _sign_in_code(api_id_val: int, api_hash_val: str, phone: str, code: str, phone_code_hash: str):
     client = TelegramClient("gold_session", api_id_val, api_hash_val)
     await client.connect()
+    if not client.is_connected():
+        raise Exception("Impossible de se connecter à Telegram. Réessaie.")
     try:
         await client.sign_in(phone=phone, code=code, phone_code_hash=phone_code_hash)
     finally:
@@ -62,6 +69,8 @@ async def _sign_in_code(api_id_val: int, api_hash_val: str, phone: str, code: st
 async def _sign_in_password(api_id_val: int, api_hash_val: str, password: str):
     client = TelegramClient("gold_session", api_id_val, api_hash_val)
     await client.connect()
+    if not client.is_connected():
+        raise Exception("Impossible de se connecter à Telegram. Réessaie.")
     try:
         await client.sign_in(password=password)
     finally:
@@ -135,8 +144,13 @@ if st.session_state.step == "config":
                         st.session_state.phone = phone
                         st.session_state.api_id = api_id
                         st.session_state.api_hash = api_hash
-                        st.session_state.phone_code_hash = result.phone_code_hash
-                        st.session_state.step = "code"
+                        if result is None:
+                            # Already authorized from previous session
+                            st.session_state.logged_in = True
+                            st.session_state.step = "scanning"
+                        else:
+                            st.session_state.phone_code_hash = result.phone_code_hash
+                            st.session_state.step = "code"
                         st.rerun()
                     except Exception as e:
                         st.error(f"Erreur: {e}")
