@@ -219,9 +219,12 @@ elif st.session_state.step == "password":
 elif st.session_state.step == "scanning":
     st.subheader("🔍 Scan de tes channels...")
 
-    async def _scan_all_channels():
+    _api_id = int(st.session_state.api_id)
+    _api_hash = st.session_state.api_hash
+
+    async def _scan_all_channels(api_id_val, api_hash_val):
         """Tout le scan dans une seule coroutine — un seul event loop, un seul client."""
-        client = TelegramClient("gold_session", int(st.session_state.api_id), st.session_state.api_hash)
+        client = TelegramClient("gold_session", api_id_val, api_hash_val)
         await client.start()
         try:
             # 1) Récupérer tous les channels
@@ -255,7 +258,7 @@ elif st.session_state.step == "scanning":
             await client.disconnect()
 
     with st.spinner("Connexion et scan des channels..."):
-        channels, trading_channels = run_telethon(_scan_all_channels)
+        channels, trading_channels = run_telethon(_scan_all_channels, _api_id, _api_hash)
 
     st.session_state.channels = channels
     st.session_state.trading_channels = trading_channels
@@ -311,7 +314,6 @@ elif st.session_state.step == "select":
 # === STEP 5: Full Analysis ===
 elif st.session_state.step == "analyzing":
     st.subheader("🔬 Analyse en cours...")
-    selected = st.session_state.selected_channels
     days = analysis_days
     progress = st.progress(0)
     status = st.empty()
@@ -323,18 +325,22 @@ elif st.session_state.step == "analyzing":
     with st.spinner("Récupération des prix gold..."):
         gold_prices = fetch_gold_prices(days=days + 5, interval="1h")
 
-    async def _run_full():
+    _api_id = int(st.session_state.api_id)
+    _api_hash = st.session_state.api_hash
+    selected = st.session_state.selected_channels
+
+    async def _run_full(api_id_val, api_hash_val, channel_ids):
         """Analyse complète dans une seule coroutine."""
-        client = TelegramClient("gold_session", int(st.session_state.api_id), st.session_state.api_hash)
+        client = TelegramClient("gold_session", api_id_val, api_hash_val)
         await client.start()
         try:
             return await run_full_analysis(
-                client, selected, days, progress_callback=update_progress
+                client, channel_ids, days, progress_callback=update_progress
             )
         finally:
             await client.disconnect()
 
-    results = run_telethon(_run_full)
+    results = run_telethon(_run_full, _api_id, _api_hash, selected)
 
     progress.empty()
     status.empty()
