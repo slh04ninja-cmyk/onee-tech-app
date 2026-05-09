@@ -219,6 +219,12 @@ elif st.session_state.step == "password":
 elif st.session_state.step == "scanning":
     st.subheader("🔍 Scan de tes channels...")
 
+    if "api_id" not in st.session_state or "api_hash" not in st.session_state:
+        st.error("Session expirée. Retour à la configuration...")
+        st.session_state.step = "config"
+        st.rerun()
+        st.stop()
+
     _api_id = int(st.session_state.api_id)
     _api_hash = st.session_state.api_hash
 
