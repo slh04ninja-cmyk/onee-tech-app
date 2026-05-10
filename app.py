@@ -6,6 +6,7 @@ Analyse et classe les channels Telegram de trading gold par rentabilité.
 import asyncio
 import concurrent.futures
 import os
+from dotenv import load_dotenv
 import streamlit as st
 import pandas as pd
 from datetime import datetime
@@ -17,6 +18,13 @@ from signal_parser import parse_signal, TradeSignal
 from gold_prices import fetch_gold_prices, check_tp_sl_hit
 from backtester import scan_channel_quick, run_full_analysis
 from scorer import ChannelScore, score_channels, format_score_report
+
+# Charger les variables d'environnement depuis .env
+load_dotenv()
+
+# Lire les identifiants Telegram depuis les variables d'environnement
+ENV_API_ID = os.getenv("API_ID", "")
+ENV_API_HASH = os.getenv("API_HASH", "")
 
 
 # === API_ID Validation ===
@@ -110,8 +118,6 @@ st.markdown("Analyse et classe tes channels Telegram de trading gold par rentabi
 defaults = {
     "step": "config",
     "phone": "",
-    "api_id": "",
-    "api_hash": "",
     "channels": [],
     "trading_channels": [],
     "selected_channels": {},
@@ -127,12 +133,11 @@ for k, v in defaults.items():
 # === Sidebar ===
 with st.sidebar:
     st.header("⚙️ Configuration")
-    api_id = st.text_input("API_ID", type="password",
-                           value=st.session_state.get("api_id", ""),
-                           help="Nombre entier (ex: 12345678). Obtu sur my.telegram.org/apps")
-    api_hash = st.text_input("API_HASH", type="password",
-                             value=st.session_state.get("api_hash", ""),
-                             help="Code hexadécimal (ex: a1b2c3d4...). Obtu sur my.telegram.org/apps")
+    if ENV_API_ID and ENV_API_HASH:
+        st.success("✅ Identifiants Telegram chargés depuis .env")
+    else:
+        st.error("❌ API_ID / API_HASH manquants dans .env")
+        st.info("Ajoute-les dans le fichier `.env` à la racine du projet")
     st.divider()
     st.header("📊 Paramètres d'analyse")
     analysis_days = st.slider("Jours d'historique", 7, 90, 30)
@@ -155,22 +160,21 @@ if st.session_state.step == "config":
         st.subheader("📱 Connexion Telegram")
         phone = st.text_input("Numéro de téléphone", placeholder="+212XXXXXXXXX")
         if st.button("📨 Envoyer le code", type="primary"):
-            if not api_id or not api_hash or not phone:
-                st.error("Remplis tous les champs dans la sidebar.")
+            if not ENV_API_ID or not ENV_API_HASH:
+                st.error("API_ID et API_HASH doivent être configurés dans le fichier `.env`")
+            elif not phone:
+                st.error("Entre ton numéro de téléphone.")
             else:
                 try:
-                    _api_id = validate_api_id(api_id)
+                    _api_id = validate_api_id(ENV_API_ID)
                 except ValueError as e:
                     st.error(str(e))
                     st.stop()
                 with st.spinner("Connexion à Telegram..."):
                     try:
-                        result = run_telethon(_send_code, _api_id, api_hash, phone)
+                        result = run_telethon(_send_code, _api_id, ENV_API_HASH, phone)
                         st.session_state.phone = phone
-                        st.session_state.api_id = api_id
-                        st.session_state.api_hash = api_hash
                         if result is None:
-                            # Already authorized from previous session
                             st.session_state.logged_in = True
                             st.session_state.step = "scanning"
                             st.toast("✅ Session Telegram existante — connexion automatique", icon="🔑")
@@ -183,8 +187,7 @@ if st.session_state.step == "config":
                         if "api_id" in err_msg.lower() or "api_hash" in err_msg.lower() or "invalid" in err_msg.lower():
                             st.error(
                                 f"❌ **API_ID/API_HASH invalide**\n\n"
-                                f"Vérifie que tu as bien copié les bonnes valeurs sur "
-                                f"[my.telegram.org/apps](https://my.telegram.org/apps):\n"
+                                f"Vérifie les valeurs dans le fichier `.env` :\n"
                                 f"- **API_ID** = un nombre entier court (ex: `12345678`)\n"
                                 f"- **API_HASH** = un code hexadécimal de 32 caractères (ex: `a1b2c3d4e5f6...`)\n\n"
                                 f"⚠️ Ne les inverse pas !"
@@ -193,11 +196,13 @@ if st.session_state.step == "config":
                             st.error(f"Erreur: {e}")
     with col2:
         st.info("""
-        **Comment obtenir API_ID?**
-        1. Va sur my.telegram.org/apps
-        2. Connecte-toi avec ton numéro
-        3. Crée une application
-        4. Copie API_ID et API_HASH
+        **Configuration requise**
+        Les identifiants Telegram doivent être dans le fichier `.env` :
+        ```
+        API_ID=12345678
+        API_HASH=a1b2c3d4...
+        ```
+        Obtén-les sur [my.telegram.org/apps](https://my.telegram.org/apps)
         """)
 
 
@@ -216,8 +221,8 @@ elif st.session_state.step == "code":
                     try:
                         run_telethon(
                             _sign_in_code,
-                            validate_api_id(st.session_state.api_id),
-                            st.session_state.api_hash,
+                            validate_api_id(ENV_API_ID),
+                            ENV_API_HASH,
                             st.session_state.phone,
                             code,
                             st.session_state.phone_code_hash
@@ -247,8 +252,8 @@ elif st.session_state.step == "password":
             try:
                 run_telethon(
                     _sign_in_password,
-                    validate_api_id(st.session_state.api_id),
-                    st.session_state.api_hash,
+                    validate_api_id(ENV_API_ID),
+                    ENV_API_HASH,
                     password
                 )
                 st.session_state.logged_in = True
@@ -262,14 +267,14 @@ elif st.session_state.step == "password":
 elif st.session_state.step == "scanning":
     st.subheader("🔍 Scan de tes channels...")
 
-    if "api_id" not in st.session_state or "api_hash" not in st.session_state:
-        st.error("Session expirée. Retour à la configuration...")
+    if not ENV_API_ID or not ENV_API_HASH:
+        st.error("API_ID/API_HASH manquants. Vérifie le fichier `.env`.")
         st.session_state.step = "config"
         st.rerun()
         st.stop()
 
-    _api_id = validate_api_id(st.session_state.api_id)
-    _api_hash = st.session_state.api_hash
+    _api_id = validate_api_id(ENV_API_ID)
+    _api_hash = ENV_API_HASH
 
     async def _scan_all_channels(api_id_val, api_hash_val):
         """Tout le scan dans une seule coroutine — un seul event loop, un seul client."""
@@ -381,8 +386,8 @@ elif st.session_state.step == "analyzing":
     with st.spinner("Récupération des prix gold..."):
         gold_prices = fetch_gold_prices(days=days + 5, interval="1m")
 
-    _api_id = validate_api_id(st.session_state.api_id)
-    _api_hash = st.session_state.api_hash
+    _api_id = validate_api_id(ENV_API_ID)
+    _api_hash = ENV_API_HASH
     selected = st.session_state.selected_channels
 
     async def _run_full(api_id_val, api_hash_val, channel_ids):

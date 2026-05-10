@@ -42,11 +42,11 @@ L'ancienne approche `yfinance` est remplacée par des appels directs à l'API v8
 - **Canaux de trading** : les signaux utilisent des prix spot (comme sur MT5 Exness), le backtester les compare aux prix futures via l'ajustement premium
 
 ## 🔑 Identifiants Telegram
-- API_ID: *(à configurer dans l'app — déplacé hors du code)*
-- API_HASH: *(à configurer dans l'app — déplacé hors du code)*
-- Téléphone: *(non fourni — à configurer dans l'app)*
-- 2FA: Non activé
-- ⚠️ Auth via Streamlit uniquement
+- API_ID / API_HASH : chargés depuis le fichier `.env` (racine du projet)
+- Téléphone : entré dans l'interface Streamlit
+- Code de vérification : entré dans l'interface Streamlit
+- 2FA: Supporté
+- ⚠️ Le fichier `.env` est dans `.gitignore` — jamais commité
 
 ## 📊 GitHub
 - Repo: https://github.com/slh04ninja-cmyk/onee-tech-app
