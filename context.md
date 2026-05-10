@@ -150,7 +150,7 @@ L'ancienne approche `yfinance` est remplacée par des appels directs à l'API v8
 **Fix dans `scorer.py` :** Quand `avg_loss == 0` et `avg_win > 0` → `rr_ratio = MAX_REALISTIC_RR` (50).
 
 ## ⚠️ Sécurité
-- ~~Token GitHub exposé dans la conversation Telegram~~ — **à révoquer** (tokens `ghp_l86R...NIe`, `ghp_oA1...bgi`, `ghp_FZq...MLF` et `ghp_8ic...`)
+- ~~Token GitHub exposé dans la conversation Telegram~~ — **à révoquer** (tokens `ghp_l86R...NIe`, `ghp_oA1...bgi` et `ghp_FZq...MLF`)
 - API_ID/API_HASH ne doivent plus être dans le code — à configurer via les secrets Streamlit
 - Repo GitHub **privé**
 - ⚠️ Ne jamais partager de tokens/mots de passe dans les messages — configurer via `git config credential.helper store`
