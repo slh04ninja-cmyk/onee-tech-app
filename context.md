@@ -19,7 +19,7 @@ onee-tech-app/
 
 ## 🔧 Technologies
 - Telegram: Telethon 1.36.0 (user account)
-- Prix gold: **Yahoo Finance API directe** (GC=F) — chunking 7 jours pour données 1min
+- Prix gold: **Yahoo Finance API directe** — XAUUSD=X (spot) priorité, GC=F (futures) fallback avec ajustement premium
 - UI: Streamlit 1.45.0 + Plotly
 - Export: openpyxl (Excel)
 - HTTP: requests (appels API directs)
@@ -32,6 +32,13 @@ Yahoo Finance limite les données 1min à 7 jours par requête. Le code utilise 
 - **15min/1h** : au-delà (fallback auto)
 
 L'ancienne approche `yfinance` est remplacée par des appels directs à l'API v8 de Yahoo Finance.
+
+### Source de données — Spot vs Futures
+- **XAUUSD=X** (spot gold) — essayé en priorité, correspond aux prix affichés sur les charts de trading
+- **GC=F** (gold futures) — fallback si spot indisponible
+- ⚠️ Yahoo Finance a delisté `XAUUSD=X` — le code utilise actuellement `GC=F` avec **ajustement dynamique du premium** (voir bug #8)
+- Le premium futures-spot est calculé au moment du signal : `premium = GC=F_open - entry_spot`
+- Les TP/SL sont ajustés par ce premium avant comparaison avec les bougies GC=F
 
 ## 🔑 Identifiants Telegram
 - API_ID: *(à configurer dans l'app — déplacé hors du code)*
@@ -91,7 +98,29 @@ L'ancienne approche `yfinance` est remplacée par des appels directs à l'API v8
 
 **Fix :** Remplacement par appels directs à l'API Yahoo Finance avec chunking (blocs de 7 jours). Permet jusqu'à 28 jours de données 1min.
 
+### 8. GC=F (futures) ≠ XAUUSD (spot) — prix décalés (RÉSOLU)
+**Problème :** Le backtester utilisait `GC=F` (gold futures) qui trade à ~$20-40 de premium vs le spot gold (XAUUSD). Les signaux Telegram référencent les prix spot, donc les TP/SL étaient comparés aux mauvais prix → résultats de backtest complètement faux.
+
+**Fix dans `gold_prices.py` :**
+- `fetch_gold_prices()` essaie `XAUUSD=X` (spot) en premier, fallback `GC=F` (futures)
+- `check_tp_sl_hit()` calcule le premium dynamiquement : `premium = GC=F_open - entry_spot`
+- Les TP/SL sont ajustés par ce premium avant comparaison avec les bougies
+- Le PnL utilise les valeurs spot originales (pas les prix ajustés)
+
+### 9. SL non parsé — regex cassé (RÉSOLU)
+**Problème :** Le pattern regex SL `[\(]?SL[\)][:\s\-]*` exigeait un `)` après SL. Donc `SL: 4619` ou `SL 4619` ne matchaient pas — seul `(SL): 4619` marchait.
+
+**Fix dans `signal_parser.py` :** `[\)]` → `[\)]?` (parenthèse fermante optionnelle)
+
+### 10. Ordre SL/TP inversé dans le backtester (RÉSOLU)
+**Problème :** Dans `check_tp_sl_hit()`, le SL était vérifié **avant** les TP dans chaque bougie. Si dans la même minute le prix touchait le TP puis le SL, le résultat était "SL" au lieu du TP. De plus, le code vérifiait tous les TP dans chaque bougie sans s'arrêter, ce qui marquait TP1 à TP7 comme touchés simultanément.
+
+**Fix dans `gold_prices.py` :**
+- TP vérifié **en premier** dans chaque bougie (stop au premier TP touché)
+- SL vérifié **seulement** si aucun TP n'a été touché avant ce point
+- Logique : une fois un TP touché, le trade est gagnant — pas de retour arrière vers le SL
+
 ## ⚠️ Sécurité
-- ~~Token GitHub exposé dans la conversation Telegram~~ — **à révoquer** (tokens `ghp_l86R...NIe` et `ghp_oA1...bgi`)
+- ~~Token GitHub exposé dans la conversation Telegram~~ — **à révoquer** (tokens `ghp_l86R...NIe`, `ghp_oA1...bgi` et `ghp_FZq...MLF`)
 - API_ID/API_HASH ne doivent plus être dans le code — à configurer via les secrets Streamlit
 - Repo GitHub **privé**
