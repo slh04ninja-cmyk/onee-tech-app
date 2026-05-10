@@ -37,7 +37,7 @@ class TradeSignal:
 def _extract_all_tps(text: str) -> List[float]:
     """
     Extract ALL take-profit levels from text dynamically.
-    Matches TP1, TP2, ..., TP99, TAKE PROFIT 1, etc.
+    Matches TP1, TP2, ..., TP99, TAKE PROFIT 1, TP without number, etc.
     Returns sorted list by TP number.
     """
     tps = {}
@@ -46,7 +46,7 @@ def _extract_all_tps(text: str) -> List[float]:
     for match in re.finditer(r'TP\s*(\d+)\s*[:\s]*(\d+\.?\d*)', text, re.IGNORECASE):
         tp_num = int(match.group(1))
         tp_val = float(match.group(2))
-        if 1000 <= tp_val <= 5000:  # gold price range
+        if 1000 <= tp_val <= 9999:  # gold price range
             tps[tp_num] = tp_val
 
     # Pattern 2: TAKE PROFIT followed by number
@@ -59,23 +59,24 @@ def _extract_all_tps(text: str) -> List[float]:
         else:
             tp_num = 1
         tp_val = float(match.group(2))
-        if 1000 <= tp_val <= 5000:
+        if 1000 <= tp_val <= 9999:
             tps[tp_num] = tp_val
 
     # Pattern 3: ✅ followed by TP (common in signal channels)
     for match in re.finditer(r'✅\s*TP\s*(\d+)\s*[:\s]*(\d+\.?\d*)', text, re.IGNORECASE):
         tp_num = int(match.group(1))
         tp_val = float(match.group(2))
-        if 1000 <= tp_val <= 5000:
+        if 1000 <= tp_val <= 9999:
             tps[tp_num] = tp_val
 
-    # Pattern 4: Just "TP:" without number (single TP) — only if no numbered TPs found
+    # Pattern 4: "TP" without number — assign sequential numbers by order of appearance
+    # Only used if no numbered TPs were found (avoids conflicts with TP1/TP2/etc.)
     if not tps:
-        match = re.search(r'TP[:\s]*(\d+\.?\d*)', text, re.IGNORECASE)
-        if match:
+        for match in re.finditer(r'\bTP\s*[:\s]*(\d+\.?\d*)', text, re.IGNORECASE):
             tp_val = float(match.group(1))
-            if 1000 <= tp_val <= 5000:
-                tps[1] = tp_val
+            if 1000 <= tp_val <= 9999:
+                tp_num = len(tps) + 1
+                tps[tp_num] = tp_val
 
     # Return sorted by TP number
     return [tps[k] for k in sorted(tps.keys())]
@@ -135,8 +136,8 @@ def parse_signal(text: str, timestamp: Optional[datetime] = None) -> Optional[Tr
     if len(tps) >= 3:
         confidence += 0.1
 
-    # Validate gold price range (roughly 1000-5000)
-    if entry < 1000 or entry > 5000:
+    # Validate gold price range (roughly 1000-9999)
+    if entry < 1000 or entry > 9999:
         return None
 
     return TradeSignal(
@@ -168,11 +169,11 @@ def _extract_price(text: str, patterns: list) -> Optional[float]:
 
 
 def _extract_standalone_price(text: str) -> Optional[float]:
-    """Extract a standalone gold price (1000-5000 range)."""
+    """Extract a standalone gold price (1000-9999 range)."""
     prices = re.findall(r'\b(\d{4}\.?\d{0,2})\b', text)
     for p in prices:
         val = float(p)
-        if 1000 <= val <= 5000:
+        if 1000 <= val <= 9999:
             return val
     return None
 

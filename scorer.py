@@ -78,7 +78,12 @@ def score_channels(channel_results: Dict[int, dict]) -> List[ChannelScore]:
         # Risk/Reward ratio — capped to avoid absurd values
         avg_win = sum(p for p in pnl_values if p > 0) / max(wins, 1)
         avg_loss = abs(sum(p for p in pnl_values if p < 0)) / max(losses, 1)
-        rr_ratio = min(avg_win / avg_loss, MAX_REALISTIC_RR) if avg_loss > 0 else 0
+        if avg_loss > 0:
+            rr_ratio = min(avg_win / avg_loss, MAX_REALISTIC_RR)
+        elif avg_win > 0:
+            rr_ratio = MAX_REALISTIC_RR  # No losses = max R:R
+        else:
+            rr_ratio = 0
 
         # Average time to result
         times = []

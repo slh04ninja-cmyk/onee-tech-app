@@ -223,8 +223,7 @@ def check_tp_sl_hit(prices: pd.DataFrame, signal_time: datetime,
         low = float(row["Low"])
 
         if direction == "BUY":
-            # Check TPs in order — stop at first hit (highest priority TP)
-            tp_hit_this_candle = False
+            # Check ALL TPs — mark every TP whose level was reached
             for i, tp_adj in enumerate(adjusted_tps):
                 if not result["tp_hits"][i] and high >= tp_adj:
                     result["tp_hits"][i] = True
@@ -232,11 +231,9 @@ def check_tp_sl_hit(prices: pd.DataFrame, signal_time: datetime,
                     result["highest_tp_hit"] = i + 1
                     result["pnl_pips"] = (tps[i] - entry) * 10
                     result["result"] = f"TP{i + 1}"
-                    tp_hit_this_candle = True
-                    break  # stop at first TP hit
 
-            # Check SL only if no TP was hit before
-            if not tp_hit_this_candle and result["highest_tp_hit"] == 0:
+            # Check SL only if no TP has been hit yet
+            if result["highest_tp_hit"] == 0:
                 if adjusted_sl and not result["sl_hit"] and low <= adjusted_sl:
                     result["sl_hit"] = True
                     result["sl_time"] = idx
@@ -247,8 +244,7 @@ def check_tp_sl_hit(prices: pd.DataFrame, signal_time: datetime,
             result["max_move"] = max(result["max_move"], high - gc_f_at_signal)
 
         else:  # SELL
-            # Check TPs in order — stop at first hit (closest to entry first)
-            tp_hit_this_candle = False
+            # Check ALL TPs — mark every TP whose level was reached
             for i, tp_adj in enumerate(adjusted_tps):
                 if not result["tp_hits"][i] and low <= tp_adj:
                     result["tp_hits"][i] = True
@@ -256,11 +252,9 @@ def check_tp_sl_hit(prices: pd.DataFrame, signal_time: datetime,
                     result["highest_tp_hit"] = i + 1
                     result["pnl_pips"] = (entry - tps[i]) * 10
                     result["result"] = f"TP{i + 1}"
-                    tp_hit_this_candle = True
-                    break  # stop at first TP hit
 
-            # Check SL only if no TP was hit before
-            if not tp_hit_this_candle and result["highest_tp_hit"] == 0:
+            # Check SL only if no TP has been hit yet
+            if result["highest_tp_hit"] == 0:
                 if adjusted_sl and not result["sl_hit"] and high >= adjusted_sl:
                     result["sl_hit"] = True
                     result["sl_time"] = idx
