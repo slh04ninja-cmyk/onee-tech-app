@@ -10,8 +10,9 @@ onee-tech-app/
 ├── signal_parser.py    # Parse signaux multi-format
 ├── gold_prices.py      # Prix XAUUSD via Yahoo Finance API directe (chunked 1m)
 ├── backtester.py       # Backtest vs vrais prix
-├── scorer.py           # Score composite 0-100 (PnL sur signaux complétés seulement)
+├── scorer.py           # Score composite 0-100 + Sharpe Ratio
 ├── bot.py              # Script original
+├── .env                # Identifiants Telegram (gitignored)
 ├── requirements.txt    # Dépendances pinnées
 ├── runtime.txt         # Version Python (non utilisé par Streamlit Cloud)
 └── README.md
@@ -23,6 +24,7 @@ onee-tech-app/
 - UI: Streamlit 1.45.0 + Plotly
 - Export: openpyxl (Excel)
 - HTTP: requests (appels API directs)
+- Config: python-dotenv (chargement .env)
 - Python: 3.12 (configuré via dashboard Streamlit Cloud)
 
 ## 📊 Données prix gold — Stratégie de chunking
@@ -51,6 +53,18 @@ L'ancienne approche `yfinance` est remplacée par des appels directs à l'API v8
 ## 📊 GitHub
 - Repo: https://github.com/slh04ninja-cmyk/onee-tech-app
 - Branche: main
+
+## 📈 Métriques de scoring
+- **Win Rate** : % de signaux gagnants (TP touché)
+- **R:R Ratio** : Risk/Reward moyen (capé à 50)
+- **Sharpe Ratio** : rendement ajusté au risque (moyenne PnL / écart-type PnL)
+- **PnL Total** : profit total en pips (signaux complétés seulement)
+- **Score Composite** : 0-100 (35% WR, 20% R:R, 15% Sharpe, 10% volume, 20% consistance)
+
+## ✅ Fonctionnalités récentes
+- **Signaux sans TP ignorés** : les signaux incomplets (pas de TP) sont filtrés avant le backtest
+- **Sharpe Ratio** : métrique de rendement ajusté au risque ajoutée au scoring
+- **Config .env** : API_ID/API_HASH chargés depuis .env, plus besoin de les entrer à chaque test
 
 ## ✅ Bugs résolus
 
@@ -150,7 +164,6 @@ L'ancienne approche `yfinance` est remplacée par des appels directs à l'API v8
 **Fix dans `scorer.py` :** Quand `avg_loss == 0` et `avg_win > 0` → `rr_ratio = MAX_REALISTIC_RR` (50).
 
 ## ⚠️ Sécurité
-- ~~Token GitHub exposé dans la conversation Telegram~~ — **à révoquer** (tokens `ghp_l86R...NIe`, `ghp_oA1...bgi` et `ghp_FZq...MLF`)
-- API_ID/API_HASH ne doivent plus être dans le code — à configurer via les secrets Streamlit
+- API_ID/API_HASH dans `.env` (gitignore) — jamais dans le code
 - Repo GitHub **privé**
-- ⚠️ Ne jamais partager de tokens/mots de passe dans les messages — configurer via `git config credential.helper store`
+- ⚠️ Ne jamais partager de tokens/mots de passe dans les messages
