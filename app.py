@@ -438,6 +438,7 @@ elif st.session_state.step == "results":
                 "Losses": s.losses,
                 "Open": s.open_signals,
                 "R:R": s.risk_reward_ratio,
+                "Sharpe": s.sharpe_ratio,
                 "PnL Total (pips)": f"{s.total_pnl_pips:+.0f}",
                 "PnL Moyen (pips)": f"{s.avg_pnl_pips:+.0f}",
                 "Meilleur": f"{s.best_signal_pips:+.0f}",
@@ -466,6 +467,7 @@ elif st.session_state.step == "results":
                     c2.metric("Signaux", s.total_signals)
                     c3.metric("PnL Total", f"{s.total_pnl_pips:+.0f} pips")
                     c4.metric("R:R", s.risk_reward_ratio)
+                    st.metric("Sharpe Ratio", s.sharpe_ratio)
                     if s.signals:
                         # Dynamically detect max TPs across all signals
                         max_tps = max((len(sig.get("tps", [])) for sig in s.signals), default=0)
@@ -497,6 +499,7 @@ elif st.session_state.step == "results":
                     "Win Rate": s.win_rate, "Total Signals": s.total_signals,
                     "Wins": s.wins, "Losses": s.losses,
                     "R:R Ratio": s.risk_reward_ratio,
+                    "Sharpe Ratio": s.sharpe_ratio,
                     "Total PnL (pips)": s.total_pnl_pips,
                     "Avg PnL (pips)": s.avg_pnl_pips
                 } for s in results]).to_excel(writer, index=False, sheet_name="Résumé")

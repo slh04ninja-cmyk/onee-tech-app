@@ -94,6 +94,9 @@ async def analyze_channel_full(client: TelegramClient, channel_id: int,
     # Parse signals
     signals = parse_signal_list(messages)
 
+    # Ignorer les signaux sans TP (signaux ouverts/incomplets)
+    signals = [s for s in signals if s.tps]
+
     if not signals:
         return {"name": channel_name, "signals": [], "error": "No signals found"}
 

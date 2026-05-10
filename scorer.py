@@ -4,6 +4,7 @@ Supporte un nombre dynamique de TP (TP1, TP2, ..., TPn).
 """
 
 import re
+import math
 import pandas as pd
 from typing import List, Dict
 from dataclasses import dataclass
@@ -21,6 +22,7 @@ class ChannelScore:
     avg_pnl_pips: float
     total_pnl_pips: float
     risk_reward_ratio: float
+    sharpe_ratio: float  # risk-adjusted return
     best_signal_pips: float
     worst_signal_pips: float
     avg_time_to_result_hours: float
@@ -85,6 +87,20 @@ def score_channels(channel_results: Dict[int, dict]) -> List[ChannelScore]:
         else:
             rr_ratio = 0
 
+        # Sharpe Ratio — risk-adjusted return
+        # Sharpe = (mean_return - risk_free) / std_return
+        # risk_free = 0 (no meaningful risk-free rate per signal)
+        if len(pnl_values) >= 2:
+            mean_ret = avg_pnl
+            variance = sum((p - mean_ret) ** 2 for p in pnl_values) / (len(pnl_values) - 1)
+            std_ret = math.sqrt(variance)
+            if std_ret > 0:
+                sharpe = round(mean_ret / std_ret, 2)
+            else:
+                sharpe = 0.0
+        else:
+            sharpe = 0.0
+
         # Average time to result
         times = []
         for s in completed:
@@ -102,12 +118,13 @@ def score_channels(channel_results: Dict[int, dict]) -> List[ChannelScore]:
         avg_time = sum(times) / len(times) if times else 0
 
         # Composite score (0-100)
-        # Weighting: win_rate (40%), R:R (25%), volume (15%), consistency (20%)
-        volume_bonus = min(total / 10, 1) * 15  # max 15 pts for 10+ signals
+        # Weighting: win_rate (35%), R:R (20%), Sharpe (15%), volume (10%), consistency (20%)
+        volume_bonus = min(total / 10, 1) * 10  # max 10 pts for 10+ signals
         consistency = 100 - (abs(best - abs(worst)) / max(abs(best), 1) * 100) if best != 0 else 50
         consistency_bonus = consistency * 0.2
+        sharpe_bonus = min(max(sharpe, 0), 3) * 5  # 0-15 pts, cap at Sharpe 3
 
-        composite = (win_rate * 0.4) + (min(rr_ratio * 10, 25)) + volume_bonus + consistency_bonus
+        composite = (win_rate * 0.35) + (min(rr_ratio * 10, 20)) + sharpe_bonus + volume_bonus + consistency_bonus
         composite = min(composite, 100)
 
         scores.append(ChannelScore(
@@ -121,6 +138,7 @@ def score_channels(channel_results: Dict[int, dict]) -> List[ChannelScore]:
             avg_pnl_pips=round(avg_pnl, 1),
             total_pnl_pips=round(total_pnl, 1),
             risk_reward_ratio=round(rr_ratio, 2),
+            sharpe_ratio=sharpe,
             best_signal_pips=round(best, 1),
             worst_signal_pips=round(worst, 1),
             avg_time_to_result_hours=round(avg_time, 1),
@@ -149,6 +167,7 @@ def format_score_report(scores: List[ChannelScore]) -> str:
         lines.append(f"   Signaux: {s.total_signals} | ✅ {s.wins} | ❌ {s.losses} | ⏳ {s.open_signals}")
         lines.append(f"   Win Rate: {s.win_rate}%")
         lines.append(f"   R:R Moyen: {s.risk_reward_ratio}")
+        lines.append(f"   Sharpe Ratio: {s.sharpe_ratio}")
         lines.append(f"   PnL Total: {s.total_pnl_pips:+.0f} pips")
         lines.append(f"   PnL Moyen: {s.avg_pnl_pips:+.0f} pips/signal")
         lines.append(f"   Meilleur: {s.best_signal_pips:+.0f} pips | Pire: {s.worst_signal_pips:+.0f} pips")
