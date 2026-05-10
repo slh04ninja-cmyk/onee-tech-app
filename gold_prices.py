@@ -55,6 +55,9 @@ def fetch_gold_prices(days: int = 30, interval: str = "1m") -> pd.DataFrame:
     """
     Fetch XAUUSD price data with automatic chunking for 1m candles.
 
+    Uses spot gold (XAUUSD=X) first, falls back to gold futures (GC=F).
+    Spot prices match what trading charts display (no futures premium).
+
     Args:
         days: Number of days of history
         interval: '1m', '5m', '15m', '1h', '1d'
@@ -62,7 +65,8 @@ def fetch_gold_prices(days: int = 30, interval: str = "1m") -> pd.DataFrame:
     Returns:
         DataFrame with columns: Open, High, Low, Close, Volume
     """
-    ticker = "GC=F"  # Gold futures
+    # Spot gold first (matches XAUUSD trading charts), then futures as fallback
+    tickers = ["XAUUSD=X", "GC=F"]
 
     now = int(time.time())
 
@@ -72,50 +76,53 @@ def fetch_gold_prices(days: int = 30, interval: str = "1m") -> pd.DataFrame:
             # Too many days for 1m, fall back to 5m
             return fetch_gold_prices(days, "5m")
 
-        frames = []
-        chunks_needed = min(MAX_CHUNKS, (days + CHUNK_DAYS_1M - 1) // CHUNK_DAYS_1M)
+        for ticker in tickers:
+            frames = []
+            chunks_needed = min(MAX_CHUNKS, (days + CHUNK_DAYS_1M - 1) // CHUNK_DAYS_1M)
 
-        for i in range(chunks_needed):
-            chunk_end = now - (i * CHUNK_DAYS_1M * 86400)
-            chunk_start = chunk_end - (CHUNK_DAYS_1M * 86400)
+            for i in range(chunks_needed):
+                chunk_end = now - (i * CHUNK_DAYS_1M * 86400)
+                chunk_start = chunk_end - (CHUNK_DAYS_1M * 86400)
 
-            df_chunk = _fetch_chunk(ticker, chunk_start, chunk_end, "1m")
-            if not df_chunk.empty:
-                frames.append(df_chunk)
+                df_chunk = _fetch_chunk(ticker, chunk_start, chunk_end, "1m")
+                if not df_chunk.empty:
+                    frames.append(df_chunk)
 
-            if i < chunks_needed - 1:
-                time.sleep(0.3)  # Rate limit protection
+                if i < chunks_needed - 1:
+                    time.sleep(0.3)  # Rate limit protection
 
-        if not frames:
-            # Fallback to 5m
-            return fetch_gold_prices(days, "5m")
+            if frames:
+                df = pd.concat(frames)
+                df = df[~df.index.duplicated(keep="first")]
+                df = df.sort_index()
+                return df
 
-        df = pd.concat(frames)
-        df = df[~df.index.duplicated(keep="first")]
-        df = df.sort_index()
+        # Neither ticker worked at 1m, fall back to 5m
+        return fetch_gold_prices(days, "5m")
 
     elif interval == "5m":
         # 5m data: can fetch up to 60 days in one request
-        start_ts = now - (days * 86400)
-        df = _fetch_chunk(ticker, start_ts, now, "5m")
-
-        if df.empty:
-            return fetch_gold_prices(days, "15m")
+        for ticker in tickers:
+            start_ts = now - (days * 86400)
+            df = _fetch_chunk(ticker, start_ts, now, "5m")
+            if not df.empty:
+                return df
+        return fetch_gold_prices(days, "15m")
 
     elif interval in ("15m", "30m"):
-        start_ts = now - (days * 86400)
-        df = _fetch_chunk(ticker, start_ts, now, "15m")
-
-        if df.empty:
-            return fetch_gold_prices(days, "1h")
+        for ticker in tickers:
+            start_ts = now - (days * 86400)
+            df = _fetch_chunk(ticker, start_ts, now, "15m")
+            if not df.empty:
+                return df
+        return fetch_gold_prices(days, "1h")
 
     else:  # 1h, 1d
-        start_ts = now - (days * 86400)
-        df = _fetch_chunk(ticker, start_ts, now, interval)
-
-        if df.empty:
-            # Last resort: try XAUUSD forex ticker
-            df = _fetch_chunk("XAUUSD=X", start_ts, now, interval)
+        for ticker in tickers:
+            start_ts = now - (days * 86400)
+            df = _fetch_chunk(ticker, start_ts, now, interval)
+            if not df.empty:
+                return df
 
     if df.empty:
         return pd.DataFrame(columns=["Open", "High", "Low", "Close", "Volume"])
@@ -155,6 +162,10 @@ def check_tp_sl_hit(prices: pd.DataFrame, signal_time: datetime,
     Check if TP or SL was hit after a signal using precise candle data.
     Supports a dynamic number of take-profit levels.
 
+    Handles the GC=F (futures) vs XAUUSD (spot) premium by computing
+    a dynamic offset at signal time: premium = GC=F_price - signal_entry.
+    Then TP/SL are adjusted by this premium so backtesting uses spot prices.
+
     Args:
         tps: List of TP prices [TP1, TP2, ..., TPn] — can be any length
 
@@ -173,7 +184,8 @@ def check_tp_sl_hit(prices: pd.DataFrame, signal_time: datetime,
         "max_move": 0.0,
         "result": "OPEN",
         "pnl_pips": 0.0,
-        "highest_tp_hit": 0                   # 0 = none, 1 = TP1, 2 = TP2, etc.
+        "highest_tp_hit": 0,                  # 0 = none, 1 = TP1, 2 = TP2, etc.
+        "premium": 0.0                        # futures-spot premium applied
     }
 
     if prices.empty:
@@ -193,50 +205,69 @@ def check_tp_sl_hit(prices: pd.DataFrame, signal_time: datetime,
     if future_prices.empty:
         return result
 
+    # Compute futures-spot premium at signal time
+    # premium = GC=F price at signal - spot entry price from signal
+    # Then: adjusted_price = GC=F candle price - premium
+    first_candle = future_prices.iloc[0]
+    gc_f_at_signal = float(first_candle["Open"])
+    premium = gc_f_at_signal - entry
+    result["premium"] = round(premium, 2)
+
+    # Adjust TP/SL to futures-equivalent prices for comparison
+    # (add premium so they match GC=F scale)
+    adjusted_tps = [tp + premium for tp in tps]
+    adjusted_sl = (sl + premium) if sl else None
+
     for idx, row in future_prices.iterrows():
         high = float(row["High"])
         low = float(row["Low"])
 
         if direction == "BUY":
-            # Check SL first (more important for risk)
-            if sl and not result["sl_hit"] and low <= sl:
-                result["sl_hit"] = True
-                result["sl_time"] = idx
-                result["pnl_pips"] = (sl - entry) * 10
-                result["result"] = "SL"
-                break
-
-            # Check all TPs in order
-            for i, tp in enumerate(tps):
-                if not result["tp_hits"][i] and high >= tp:
+            # Check TPs in order — stop at first hit (highest priority TP)
+            tp_hit_this_candle = False
+            for i, tp_adj in enumerate(adjusted_tps):
+                if not result["tp_hits"][i] and high >= tp_adj:
                     result["tp_hits"][i] = True
                     result["tp_times"][i] = idx
                     result["highest_tp_hit"] = i + 1
-                    # Update result and PnL to highest TP hit
-                    result["pnl_pips"] = (tp - entry) * 10
+                    result["pnl_pips"] = (tps[i] - entry) * 10
                     result["result"] = f"TP{i + 1}"
+                    tp_hit_this_candle = True
+                    break  # stop at first TP hit
 
-            result["max_move"] = max(result["max_move"], high - entry)
+            # Check SL only if no TP was hit before
+            if not tp_hit_this_candle and result["highest_tp_hit"] == 0:
+                if adjusted_sl and not result["sl_hit"] and low <= adjusted_sl:
+                    result["sl_hit"] = True
+                    result["sl_time"] = idx
+                    result["pnl_pips"] = (sl - entry) * 10
+                    result["result"] = "SL"
+                    break
+
+            result["max_move"] = max(result["max_move"], high - gc_f_at_signal)
 
         else:  # SELL
-            # Check SL first
-            if sl and not result["sl_hit"] and high >= sl:
-                result["sl_hit"] = True
-                result["sl_time"] = idx
-                result["pnl_pips"] = (entry - sl) * 10
-                result["result"] = "SL"
-                break
-
-            # Check all TPs in order
-            for i, tp in enumerate(tps):
-                if not result["tp_hits"][i] and low <= tp:
+            # Check TPs in order — stop at first hit (closest to entry first)
+            tp_hit_this_candle = False
+            for i, tp_adj in enumerate(adjusted_tps):
+                if not result["tp_hits"][i] and low <= tp_adj:
                     result["tp_hits"][i] = True
                     result["tp_times"][i] = idx
                     result["highest_tp_hit"] = i + 1
-                    # Update result and PnL to highest TP hit
-                    result["pnl_pips"] = (entry - tp) * 10
+                    result["pnl_pips"] = (entry - tps[i]) * 10
                     result["result"] = f"TP{i + 1}"
+                    tp_hit_this_candle = True
+                    break  # stop at first TP hit
 
-            result["max_move"] = max(result["max_move"], entry - low)
+            # Check SL only if no TP was hit before
+            if not tp_hit_this_candle and result["highest_tp_hit"] == 0:
+                if adjusted_sl and not result["sl_hit"] and high >= adjusted_sl:
+                    result["sl_hit"] = True
+                    result["sl_time"] = idx
+                    result["pnl_pips"] = (entry - sl) * 10
+                    result["result"] = "SL"
+                    break
+
+            result["max_move"] = max(result["max_move"], gc_f_at_signal - low)
 
     return result
