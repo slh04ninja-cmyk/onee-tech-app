@@ -34,11 +34,12 @@ Yahoo Finance limite les données 1min à 7 jours par requête. Le code utilise 
 L'ancienne approche `yfinance` est remplacée par des appels directs à l'API v8 de Yahoo Finance.
 
 ### Source de données — Spot vs Futures
-- **XAUUSD=X** (spot gold) — essayé en priorité, correspond aux prix affichés sur les charts de trading
+- **XAUUSD=X** (spot gold) — essayé en priorité, correspond aux prix affichés sur les charts de trading (MT5 Exness, TradingView)
 - **GC=F** (gold futures) — fallback si spot indisponible
 - ⚠️ Yahoo Finance a delisté `XAUUSD=X` — le code utilise actuellement `GC=F` avec **ajustement dynamique du premium** (voir bug #8)
 - Le premium futures-spot est calculé au moment du signal : `premium = GC=F_open - entry_spot`
 - Les TP/SL sont ajustés par ce premium avant comparaison avec les bougies GC=F
+- **Canaux de trading** : les signaux utilisent des prix spot (comme sur MT5 Exness), le backtester les compare aux prix futures via l'ajustement premium
 
 ## 🔑 Identifiants Telegram
 - API_ID: *(à configurer dans l'app — déplacé hors du code)*
@@ -120,7 +121,36 @@ L'ancienne approche `yfinance` est remplacée par des appels directs à l'API v8
 - SL vérifié **seulement** si aucun TP n'a été touché avant ce point
 - Logique : une fois un TP touché, le trade est gagnant — pas de retour arrière vers le SL
 
+### 11. TP sans numéro non parsé (RÉSOLU)
+**Problème :** Le channel écrit `TP 4535` (sans numéro), mais le regex `TP\s*(\d+)\s*[:\s]*(\d+\.?\d*)` exigeait un chiffre après "TP" (TP**1**, TP**2**, etc.). Seul le pattern fallback "TP:" matchait, et ne captait qu'**un seul** TP → TP2-TP5 étaient ignorés.
+
+**Impact :** Le backtester ne vérifiait que TP1. Si TP2 était touché 16 min plus tard, il était ignoré → PnL sous-estimé.
+
+**Fix dans `signal_parser.py` :**
+- Ajout d'un Pattern 4 qui matche `TP` sans numéro (`\bTP\s*[:\s]*(\d+\.?\d*)`)
+- Attribution séquentielle des numéros par ordre d'apparition (TP1, TP2, TP3...)
+- Pattern 4 activé **seulement** si aucun TP numéroté (TP1/TP2/...) n'a été trouvé
+
+### 12. Plage de prix gold trop restrictive (RÉSOLU)
+**Problème :** La validation `1000 ≤ price ≤ 5000` rejetait les prix au-dessus de $5000. L'or étant à ~$4730 en mai 2026 et en hausse, cette limite allait casser prochainement.
+
+**Fix dans `signal_parser.py` :** Plage élargie à `1000 ≤ price ≤ 9999` (entry, TP, standalone price).
+
+### 13. TPs traversés en une bougie non marqués (RÉSOLU)
+**Problème :** Pour un SELL avec TPs [4535, 4530, 4525], si le prix descendait à 4528 en une bougie, seul TP1 (4535) était marqué. TP2 (4530) était ignoré même si le prix l'avait traversé. Le code utilisait `break` après le premier TP touché dans une bougie.
+
+**Fix dans `gold_prices.py` :**
+- Suppression du `break` après détection d'un TP dans une bougie
+- Tous les TPs dont le niveau est traversé sont marqués (pas juste le premier)
+- Le SL est vérifié **seulement** si aucun TP n'a été touché au préalable
+
+### 14. R:R ratio à 0 quand aucune perte (RÉSOLU)
+**Problème :** Si tous les trades sont gagnants (aucun SL touché), `avg_loss = 0` → `rr_ratio = 0`. Le score composite était pénalisé pour un bon résultat.
+
+**Fix dans `scorer.py` :** Quand `avg_loss == 0` et `avg_win > 0` → `rr_ratio = MAX_REALISTIC_RR` (50).
+
 ## ⚠️ Sécurité
-- ~~Token GitHub exposé dans la conversation Telegram~~ — **à révoquer** (tokens `ghp_l86R...NIe`, `ghp_oA1...bgi` et `ghp_FZq...MLF`)
+- ~~Token GitHub exposé dans la conversation Telegram~~ — **à révoquer** (tokens `ghp_l86R...NIe`, `ghp_oA1...bgi`, `ghp_FZq...MLF` et `ghp_8ic...`)
 - API_ID/API_HASH ne doivent plus être dans le code — à configurer via les secrets Streamlit
 - Repo GitHub **privé**
+- ⚠️ Ne jamais partager de tokens/mots de passe dans les messages — configurer via `git config credential.helper store`
