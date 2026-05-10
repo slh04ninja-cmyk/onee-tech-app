@@ -27,11 +27,18 @@ onee-tech-app/
 
 ## 📊 Données prix gold — Stratégie de chunking
 Yahoo Finance limite les données 1min à 7 jours par requête. Le code utilise le chunking :
-- **1min** : jusqu'à 28 jours (4 blocs × 7 jours)
+- **1min** : jusqu'à 28 jours (4 blocs × 7 jours) via Yahoo, puis **OANDA** en fallback
 - **5min** : jusqu'à 60 jours (fallback auto)
 - **15min/1h** : au-delà (fallback auto)
 
 L'ancienne approche `yfinance` est remplacée par des appels directs à l'API v8 de Yahoo Finance.
+
+### OANDA API (fallback étendu)
+- Utilisée quand Yahoo ne couvre pas assez de données 1min (>28 jours)
+- Clés à configurer dans `.env` : `OANDA_API_KEY`, `OANDA_ACCOUNT_ID`, `OANDA_ENV`
+- Chunking OANDA : 5000 bougies/requête (~3.5 jours en M1)
+- Instrument : `XAU_USD` (spot gold)
+- Gratuit avec un compte practice OANDA
 
 ### Source de données — Spot vs Futures
 - **XAUUSD=X** (spot gold) — essayé en priorité, correspond aux prix affichés sur les charts de trading (MT5 Exness, TradingView)

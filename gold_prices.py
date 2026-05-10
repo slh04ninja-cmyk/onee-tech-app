@@ -1,14 +1,18 @@
 """
-Gold Price Fetcher - Récupère les données de prix XAUUSD via Yahoo Finance API directe.
+Gold Price Fetcher - Récupère les données de prix XAUUSD via Yahoo Finance et OANDA.
 Supporte les bougies 1min par blocs de 7 jours pour le scalping.
 Supporte un nombre dynamique de TP.
 """
 
+import os
 import requests
 import time
 import pandas as pd
 from datetime import datetime, timedelta, timezone
 from typing import Optional, List
+from dotenv import load_dotenv
+
+load_dotenv()
 
 YAHOO_API_URL = "https://query1.finance.yahoo.com/v8/finance/chart/{ticker}"
 HEADERS = {"User-Agent": "Mozilla/5.0"}
@@ -16,6 +20,123 @@ HEADERS = {"User-Agent": "Mozilla/5.0"}
 # Yahoo Finance limits 1m data to 7 days per request
 CHUNK_DAYS_1M = 7
 MAX_CHUNKS = 4  # Max 4 chunks = 28 days of 1m data
+
+# OANDA config
+OANDA_API_KEY = os.getenv("OANDA_API_KEY", "")
+OANDA_ACCOUNT_ID = os.getenv("OANDA_ACCOUNT_ID", "")
+OANDA_ENV = os.getenv("OANDA_ENV", "practice")
+OANDA_BASE_URL = "https://api-fxpractice.oanda.com" if OANDA_ENV == "practice" else "https://api-fxtrade.oanda.com"
+OANDA_INSTRUMENT = "XAU_USD"
+
+
+def _fetch_oanda_candles(start_dt: datetime, end_dt: datetime, granularity: str = "M1") -> pd.DataFrame:
+    """
+    Fetch OHLCV candles from OANDA v20 API.
+    Max 5000 candles per request (~3.5 days for M1).
+
+    Args:
+        start_dt: Start datetime (UTC)
+        end_dt: End datetime (UTC)
+        granularity: OANDA granularity (M1, M5, M15, H1, etc.)
+
+    Returns:
+        DataFrame with columns: Open, High, Low, Close, Volume
+    """
+    if not OANDA_API_KEY:
+        return pd.DataFrame()
+
+    url = f"{OANDA_BASE_URL}/v3/instruments/{OANDA_INSTRUMENT}/candles"
+    headers = {"Authorization": f"Bearer {OANDA_API_KEY}"}
+
+    # OANDA expects RFC3339 format
+    params = {
+        "from": start_dt.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "to": end_dt.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "granularity": granularity,
+        "price": "MBA",  # Mid, Bid, Ask — we use Mid
+    }
+
+    try:
+        resp = requests.get(url, headers=headers, params=params, timeout=15)
+        if resp.status_code != 200:
+            return pd.DataFrame()
+
+        data = resp.json()
+        candles = data.get("candles", [])
+        if not candles:
+            return pd.DataFrame()
+
+        rows = []
+        for c in candles:
+            if not c.get("complete", True):
+                continue  # skip incomplete candles
+            mid = c.get("mid", {})
+            rows.append({
+                "Open": float(mid.get("o", 0)),
+                "High": float(mid.get("h", 0)),
+                "Low": float(mid.get("l", 0)),
+                "Close": float(mid.get("c", 0)),
+                "Volume": int(c.get("volume", 0)),
+                "_ts": c["time"],
+            })
+
+        if not rows:
+            return pd.DataFrame()
+
+        df = pd.DataFrame(rows)
+        df.index = pd.to_datetime(df["_ts"])
+        df.index = df.index.tz_localize(None)
+        df = df.drop(columns=["_ts"])
+        return df
+
+    except Exception:
+        return pd.DataFrame()
+
+
+def fetch_oanda_prices(days: int = 60, interval: str = "1m") -> pd.DataFrame:
+    """
+    Fetch XAUUSD from OANDA with automatic chunking.
+    OANDA limits to 5000 candles per request (~3.5 days for M1).
+
+    Args:
+        days: Number of days of history
+        interval: '1m', '5m', '15m', '1h'
+
+    Returns:
+        DataFrame with columns: Open, High, Low, Close, Volume
+    """
+    if not OANDA_API_KEY:
+        return pd.DataFrame()
+
+    granularity_map = {"1m": "M1", "5m": "M5", "15m": "M15", "1h": "H1"}
+    oanda_gran = granularity_map.get(interval, "M1")
+
+    # Chunk size in days based on granularity
+    chunk_days_map = {"M1": 3, "M5": 15, "M15": 45, "H1": 180}
+    chunk_days = chunk_days_map.get(oanda_gran, 3)
+
+    now = datetime.utcnow()
+    frames = []
+    chunks_needed = (days + chunk_days - 1) // chunk_days
+
+    for i in range(chunks_needed):
+        chunk_end = now - timedelta(days=i * chunk_days)
+        chunk_start = chunk_end - timedelta(days=chunk_days)
+
+        df_chunk = _fetch_oanda_candles(chunk_start, chunk_end, oanda_gran)
+        if not df_chunk.empty:
+            frames.append(df_chunk)
+
+        if i < chunks_needed - 1:
+            time.sleep(0.3)
+
+    if not frames:
+        return pd.DataFrame()
+
+    df = pd.concat(frames)
+    df = df[~df.index.duplicated(keep="first")]
+    df = df.sort_index()
+    return df
 
 
 def _fetch_chunk(ticker: str, start_ts: int, end_ts: int, interval: str) -> pd.DataFrame:
@@ -53,10 +174,9 @@ def _fetch_chunk(ticker: str, start_ts: int, end_ts: int, interval: str) -> pd.D
 
 def fetch_gold_prices(days: int = 30, interval: str = "1m") -> pd.DataFrame:
     """
-    Fetch XAUUSD price data with automatic chunking for 1m candles.
-
-    Uses spot gold (XAUUSD=X) first, falls back to gold futures (GC=F).
-    Spot prices match what trading charts display (no futures premium).
+    Fetch XAUUSD price data. Strategy:
+    1. Yahoo Finance (spot XAUUSD=X, fallback GC=F) — fast, no key needed
+    2. OANDA — fallback for extended 1min history (>28 days)
 
     Args:
         days: Number of days of history
@@ -73,7 +193,11 @@ def fetch_gold_prices(days: int = 30, interval: str = "1m") -> pd.DataFrame:
     # For 1m data: chunk into 7-day blocks (Yahoo Finance limit)
     if interval == "1m":
         if days > CHUNK_DAYS_1M * MAX_CHUNKS:
-            # Too many days for 1m, fall back to 5m
+            # Beyond Yahoo's 1min range — try OANDA first
+            oanda_df = fetch_oanda_prices(days, "1m")
+            if not oanda_df.empty:
+                return oanda_df
+            # OANDA failed, fall back to 5min via Yahoo
             return fetch_gold_prices(days, "5m")
 
         for ticker in tickers:
@@ -97,7 +221,10 @@ def fetch_gold_prices(days: int = 30, interval: str = "1m") -> pd.DataFrame:
                 df = df.sort_index()
                 return df
 
-        # Neither ticker worked at 1m, fall back to 5m
+        # Neither ticker worked at 1m, try OANDA then 5m
+        oanda_df = fetch_oanda_prices(days, "1m")
+        if not oanda_df.empty:
+            return oanda_df
         return fetch_gold_prices(days, "5m")
 
     elif interval == "5m":
