@@ -337,7 +337,7 @@ elif st.session_state.step == "select":
             f"{len(trading)} channels avec signaux trouvés sur {len(all_channels)} total"
         )
         df = pd.DataFrame(trading).rename(columns={
-            "title": "Channel", "signal_count": "Signaux détectés",
+            "id": "ID", "title": "Channel", "signal_count": "Signaux détectés",
             "format": "Format", "username": "Username"
         })
         selected = st.multiselect(
@@ -348,7 +348,7 @@ elif st.session_state.step == "select":
         selected_ids = {ch["id"]: ch["title"] for ch in trading if ch["title"] in selected}
         st.session_state.selected_channels = selected_ids
         st.dataframe(
-            df[["Channel", "Username", "Signaux détectés", "Format"]],
+            df[["ID", "Channel", "Username", "Signaux détectés", "Format"]],
             use_container_width=True, hide_index=True
         )
         st.divider()
@@ -435,6 +435,7 @@ elif st.session_state.step == "results":
 
         with tab1:
             data = [{
+                "ID": s.channel_id,
                 "Channel": s.channel_name,
                 "Score": s.score,
                 "Win Rate": f"{s.win_rate}%",
@@ -467,6 +468,7 @@ elif st.session_state.step == "results":
             for idx, s in enumerate(results):
                 medal = "🥇" if idx == 0 else "📊"
                 with st.expander(f"{medal} {s.channel_name} — {s.score}/100"):
+                    st.caption(f"Channel ID: `{s.channel_id}`")
                     c1, c2, c3, c4 = st.columns(4)
                     c1.metric("Win Rate", f"{s.win_rate}%")
                     c2.metric("Signaux", s.total_signals)
@@ -500,6 +502,7 @@ elif st.session_state.step == "results":
             buffer = BytesIO()
             with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
                 pd.DataFrame([{
+                    "Channel ID": s.channel_id,
                     "Channel": s.channel_name, "Score": s.score,
                     "Win Rate": s.win_rate, "Total Signals": s.total_signals,
                     "Wins": s.wins, "Losses": s.losses,
