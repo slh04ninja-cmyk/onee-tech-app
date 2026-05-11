@@ -6,3 +6,4 @@ textColor = "#FAFAFA"
 
 [server]
 headless = true
+fileWatcherType = "poll"
