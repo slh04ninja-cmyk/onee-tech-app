@@ -6,13 +6,14 @@ Application Streamlit qui analyse et classe les channels Telegram de trading gol
 ## 🏗️ Architecture
 ```
 onee-tech-app/
-├── app.py              # UI Streamlit (6 étapes) + fix event loop
-├── signal_parser.py    # Parse signaux multi-format
+├── app.py              # UI Streamlit (7 étapes) + responsive CSS + page détail channel
+├── signal_parser.py    # Parse signaux multi-format (superscripts, ranges, parenthèses)
 ├── gold_prices.py      # Prix XAUUSD via Yahoo Finance API directe (chunked 1m)
 ├── backtester.py       # Backtest vs vrais prix
 ├── scorer.py           # Score composite 0-100 + Sharpe Ratio
 ├── bot.py              # Script original
 ├── .env                # Identifiants Telegram (gitignored)
+├── .streamlit/config.toml  # Config Streamlit (poll file watcher)
 ├── requirements.txt    # Dépendances pinnées
 ├── runtime.txt         # Version Python (non utilisé par Streamlit Cloud)
 └── README.md
@@ -65,6 +66,12 @@ L'ancienne approche `yfinance` est remplacée par des appels directs à l'API v8
 - **Signaux sans TP ignorés** : les signaux incomplets (pas de TP) sont filtrés avant le backtest
 - **Sharpe Ratio** : métrique de rendement ajusté au risque ajoutée au scoring
 - **Config .env** : API_ID/API_HASH chargés depuis .env, plus besoin de les entrer à chaque test
+- **Superscripts Unicode** : TP¹, TP², etc. parsés correctement (conversion en chiffres ASCII)
+- **Entry ranges** : `4720/4723` parsé comme midpoint 4721.5
+- **Channel IDs affichés** : ID Telegram visible dans la sélection, les résultats, et l'export Excel
+- **UI responsive** : CSS mobile-first, métriques empilées, tableaux scrollables
+- **Indicateurs de chargement** : progress bars par channel (scan) et par phase (analyse)
+- **Page détail channel** : dédiée avec courbe PnL cumulé, répartition W/L, heatmap jour×heure, bar chart PnL/signal
 
 ## ✅ Bugs résolus
 
@@ -162,6 +169,48 @@ L'ancienne approche `yfinance` est remplacée par des appels directs à l'API v8
 **Problème :** Si tous les trades sont gagnants (aucun SL touché), `avg_loss = 0` → `rr_ratio = 0`. Le score composite était pénalisé pour un bon résultat.
 
 **Fix dans `scorer.py` :** Quand `avg_loss == 0` et `avg_win > 0` → `rr_ratio = MAX_REALISTIC_RR` (50).
+
+### 15. Superscripts Unicode non parsés (RÉSOLU)
+**Problème :** Les TPs écrits en chiffres Unicode superscripts (`TP¹ 4716`, `TP.² 4712`) n'étaient pas parsés — `\d+` ne matche que les chiffres ASCII.
+
+**Fix dans `signal_parser.py` :** Ajout de `_normalize_superscripts()` qui convertit `¹²³⁴⁵⁶⁷⁸⁹⁰` en `1234567890` avant le parsing.
+
+### 16. Entry ranges avec `/` non parsés (RÉSOLU)
+**Problème :** `SELL 4720/4723` — seul `4720` était capturé, le range était perdu.
+
+**Fix dans `signal_parser.py` :** Les patterns BUY/SELL/ENTRY capturent maintenant les ranges (`4720/4723` → midpoint `4721.5`). `_extract_price()` split sur `/`, `-`, `–`.
+
+### 17. Parenthèses dans TP patterns (RÉSOLU)
+**Problème :** `Take Profit 1 (TP1): 4671.00` — le `)` entre `TP1` et `:` cassait le regex.
+
+**Fix dans `signal_parser.py` :** Pattern 1 (`TP\s*(\d+)\s*\)?\s*[:\s\-]*`) gère le `)` optionnel. Pattern 2 (`(?:\(.*?\))?`) saute les parenthèles.
+
+### 18. set_page_config doit être première commande (RÉSOLU)
+**Problème :** `st.markdown()` (CSS responsive) était appelé avant `st.set_page_config()` → `StreamlitSetPageConfigMustBeFirstCommandError`.
+
+**Fix dans `app.py` :** Déplacer le CSS après `set_page_config()`.
+
+### 19. Arrow type error sur colonnes TP/SL (RÉSOLU)
+**Problème :** Les colonnes TP mélangaient `float` (valeurs) et `str` (`"—"` pour les TPs manquants) → `ArrowTypeError` / `ArrowInvalid` à la sérialisation.
+
+**Fix dans `app.py` :** Conversion de toutes les valeurs TP et SL en `str()` avant insertion dans le DataFrame.
+
+### 20. inotify instance limit sur Streamlit Cloud (RÉSOLU)
+**Problème :** `OSError: [Errno 24] inotify instance limit reached` — le file watcher de Streamlit atteignait la limite système sur le cloud.
+
+**Fix dans `.streamlit/config.toml` :** `fileWatcherType = "poll"` pour utiliser le polling au lieu d'inotify.
+
+## ⚠️ Bugs non résolus
+
+### 1. Erreur pendant le scan Telegram (EN COURS)
+**Problème :** Après connexion Telegram (entrée du code de vérification), l'étape de scan s'arrête avec "Erreur pendant le scan" sans détail.
+
+**Statut :** Diagnostic en cours — traceback complet ajouté pour identifier la cause. Potentiellement lié à :
+- Persistance du fichier `gold_session.session` sur Streamlit Cloud (filesystem éphémère)
+- Erreur Telethon lors de `client.start()` ou `iter_dialogs()`
+- Timeout lors du scan de nombreux channels
+
+**Environnement :** Streamlit Cloud, Python 3.12, Telethon 1.36.0
 
 ## ⚠️ Sécurité
 - API_ID/API_HASH dans `.env` (gitignore) — jamais dans le code
