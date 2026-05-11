@@ -341,12 +341,11 @@ elif st.session_state.step == "scanning":
     scan_progress = st.progress(0, text="🔄 Connexion à Telegram...")
     scan_status = st.empty()
 
-    async def _scan_all_channels(api_id_val, api_hash_val):
+    async def _get_all_channels(api_id_val, api_hash_val):
+        """Récupère la liste des channels."""
         client = TelegramClient("gold_session", api_id_val, api_hash_val)
         await client.start()
         try:
-            # 1) Récupérer tous les channels
-            scan_status.text("📋 Récupération de la liste des channels...")
             channels = []
             async for dialog in client.iter_dialogs():
                 entity = dialog.entity
@@ -359,32 +358,44 @@ elif st.session_state.step == "scanning":
                         "megagroup": entity.megagroup,
                         "likely_trading": is_likely_trading_channel(entity.title)
                     })
+            return channels
+        finally:
+            await client.disconnect()
 
-            # 2) Scanner chaque channel pour les signaux
-            trading_channels = []
-            total = len(channels)
-            for i, ch in enumerate(channels):
-                scan_progress.progress(
-                    (i + 1) / total,
-                    text=f"🔍 Scan {i+1}/{total} — {ch['title'][:30]}..."
-                )
-                scan = await scan_channel_quick(client, ch["id"])
-                if scan.get("has_signals"):
-                    trading_channels.append({
-                        **ch,
-                        "signal_count": scan["sample_count"],
-                        "format": scan["format"],
-                        "total_messages": scan.get("total_messages", 0)
-                    })
-
-            return channels, trading_channels
+    async def _scan_one_channel(api_id_val, api_hash_val, channel_id):
+        """Scan un seul channel pour les signaux."""
+        client = TelegramClient("gold_session", api_id_val, api_hash_val)
+        await client.start()
+        try:
+            return await scan_channel_quick(client, channel_id)
         finally:
             await client.disconnect()
 
     try:
-        channels, trading_channels = run_telethon(_scan_all_channels, _api_id, _api_hash)
+        # Phase 1: récupérer la liste des channels
+        scan_progress.progress(0.05, text="🔄 Connexion à Telegram...")
+        channels = run_telethon(_get_all_channels, _api_id, _api_hash)
+        scan_status.text(f"📋 {len(channels)} channels trouvés — scan en cours...")
+
+        # Phase 2: scanner chaque channel (UI updates dans le thread principal)
+        trading_channels = []
+        total = len(channels)
+        for i, ch in enumerate(channels):
+            scan_progress.progress(
+                0.05 + 0.95 * ((i + 1) / total),
+                text=f"🔍 Scan {i+1}/{total} — {ch['title'][:30]}..."
+            )
+            scan = run_telethon(_scan_one_channel, _api_id, _api_hash, ch["id"])
+            if scan.get("has_signals"):
+                trading_channels.append({
+                    **ch,
+                    "signal_count": scan["sample_count"],
+                    "format": scan["format"],
+                    "total_messages": scan.get("total_messages", 0)
+                })
+
         scan_progress.progress(1.0, text="✅ Scan terminé !")
-        scan_status.success(f"✅ {len(trading_channels)} channels avec signaux trouvés sur {len(channels)} scannés")
+        scan_status.success(f"✅ {len(trading_channels)} channels avec signaux trouvés sur {total} scannés")
     except Exception as e:
         import traceback
         scan_progress.empty()
