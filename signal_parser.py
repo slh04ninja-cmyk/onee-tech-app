@@ -34,23 +34,65 @@ class TradeSignal:
         return self.tps[2] if len(self.tps) >= 3 else None
 
 
+def _superscript_to_int(s: str) -> Optional[int]:
+    """Convert Unicode superscript digits to an integer. Returns None if not a superscript number."""
+    sup_map = {'⁰': '0', '¹': '1', '²': '2', '³': '3', '⁴': '4',
+               '⁵': '5', '⁶': '6', '⁷': '7', '⁸': '8', '⁹': '9'}
+    result = ''
+    for ch in s:
+        if ch in sup_map:
+            result += sup_map[ch]
+        else:
+            return None
+    return int(result) if result else None
+
+
+def _normalize_superscripts(text: str) -> str:
+    """Replace Unicode superscript digits with ASCII digits in TP patterns.
+
+    Converts patterns like 'TP¹ 4716' or 'TP.² 4712' into 'TP1 4716', 'TP2 4712'
+    so that standard regex can match them.
+    """
+    sup_map = {'⁰': '0', '¹': '1', '²': '2', '³': '3', '⁴': '4',
+               '⁵': '5', '⁶': '6', '⁷': '7', '⁸': '8', '⁹': '9'}
+
+    def _replace_tp_sup(match):
+        prefix = match.group(1)  # 'TP' or 'tp'
+        dots = match.group(2) or ''  # optional dots/spaces between TP and superscript
+        sup_digits = match.group(3)  # superscript characters
+        rest = match.group(4)  # everything after (space + price, etc.)
+        ascii_digits = ''.join(sup_map.get(ch, ch) for ch in sup_digits)
+        return f'{prefix}{ascii_digits}{rest}'
+
+    # Match TP (case-insensitive) followed by optional dots/spaces, then superscript chars
+    # Superscript Unicode range: \u00b9 (¹), \u00b2 (²), \u00b3 (³), \u2070-\u2079 (⁰-⁹)
+    pattern = r'(?i)(TP)([.\s]*)([\u00b9\u00b2\u00b3\u2070-\u2079]+)(.*?)(?=\n|TP|$)'
+    return re.sub(pattern, _replace_tp_sup, text)
+
+
 def _extract_all_tps(text: str) -> List[float]:
     """
     Extract ALL take-profit levels from text dynamically.
     Matches TP1, TP2, ..., TP99, TAKE PROFIT 1, TP without number, etc.
+    Also handles Unicode superscripts (TP¹, TP², etc.).
     Returns sorted list by TP number.
     """
+    # Normalize superscripts first so all subsequent patterns work
+    text = _normalize_superscripts(text)
+
     tps = {}
 
     # Pattern 1: TP followed by number (TP1, TP2, TP10, etc.)
-    for match in re.finditer(r'TP\s*(\d+)\s*[:\s]*(\d+\.?\d*)', text, re.IGNORECASE):
+    # Handles optional parentheses around TP label like "(TP1): 4671.00"
+    for match in re.finditer(r'TP\s*(\d+)\s*\)?\s*[:\s\-]*(\d+\.?\d*)', text, re.IGNORECASE):
         tp_num = int(match.group(1))
         tp_val = float(match.group(2))
         if 1000 <= tp_val <= 9999:  # gold price range
             tps[tp_num] = tp_val
 
     # Pattern 2: TAKE PROFIT followed by number
-    for match in re.finditer(r'TAKE\s*PROFIT\s*(\d+|ONE|TWO|THREE|FOUR|FIVE|SIX|SEVEN|EIGHT|NINE|TEN)?\s*[:\s]*(\d+\.?\d*)', text, re.IGNORECASE):
+    # Handles both "TAKE PROFIT ONE 4510" and "Take Profit 1 (TP1): 4671.00"
+    for match in re.finditer(r'TAKE\s*PROFIT\s*(\d+|ONE|TWO|THREE|FOUR|FIVE|SIX|SEVEN|EIGHT|NINE|TEN)?\s*(?:\(.*?\))?\s*[:\s\-]*(\d+\.?\d*)', text, re.IGNORECASE):
         word_to_num = {"ONE": 1, "TWO": 2, "THREE": 3, "FOUR": 4, "FIVE": 5,
                        "SIX": 6, "SEVEN": 7, "EIGHT": 8, "NINE": 9, "TEN": 10}
         num_str = match.group(1)
@@ -105,10 +147,11 @@ def parse_signal(text: str, timestamp: Optional[datetime] = None) -> Optional[Tr
         return None
 
     # Extract prices - various formats
-    entry = _extract_price(text, [r'ENTRY[:\s]*(\d+\.?\d*)', r'OPEN[:\s]*(\d+\.?\d*)',
-                                   r'@[:\s]*(\d+\.?\d*)', r'ZONE[:\s]*(\d+\.?\d*[-–]\d+\.?\d*)',
-                                   r'BUY[:\s]*(\d+\.?\d*)', r'SELL[:\s]*(\d+\.?\d*)',
-                                   r'LONG[:\s]*(\d+\.?\d*)', r'SHORT[:\s]*(\d+\.?\d*)'])
+    # BUY/SELL patterns must capture optional range (e.g. "4720/4723", "3250-3260")
+    entry = _extract_price(text, [r'ENTRY[:\s]*(\d+\.?\d*\s*[-–/]?\s*\d*\.?\d*)', r'OPEN[:\s]*(\d+\.?\d*\s*[-–/]?\s*\d*\.?\d*)',
+                                   r'@[:\s]*(\d+\.?\d*\s*[-–/]?\s*\d*\.?\d*)', r'ZONE[:\s]*(\d+\.?\d*[-–]\d+\.?\d*)',
+                                   r'BUY[:\s]*(\d+\.?\d*\s*[-–/]?\s*\d*\.?\d*)', r'SELL[:\s]*(\d+\.?\d*\s*[-–/]?\s*\d*\.?\d*)',
+                                   r'LONG[:\s]*(\d+\.?\d*\s*[-–/]?\s*\d*\.?\d*)', r'SHORT[:\s]*(\d+\.?\d*\s*[-–/]?\s*\d*\.?\d*)'])
 
     # If no labeled entry, try to find a standalone price in gold range (1000-5000)
     if entry is None:
@@ -152,15 +195,17 @@ def parse_signal(text: str, timestamp: Optional[datetime] = None) -> Optional[Tr
 
 
 def _extract_price(text: str, patterns: list) -> Optional[float]:
-    """Extract a price from text using multiple regex patterns."""
+    """Extract a price from text using multiple regex patterns.
+    Handles ranges like '4720/4723', '3250-3260', '3250–3260' -> midpoint.
+    """
     for pattern in patterns:
         match = re.search(pattern, text, re.IGNORECASE)
         if match:
             try:
                 val = match.group(1)
-                # Handle range like "3250-3260" -> take midpoint
-                if re.match(r'\d+\.?\d*[-–]\d+\.?\d*', val):
-                    parts = re.split(r'[-–]', val)
+                # Handle range like "3250-3260", "4720/4723" -> take midpoint
+                if re.match(r'\d+\.?\d*\s*[-–/]\s*\d+\.?\d*', val):
+                    parts = re.split(r'\s*[-–/]\s*', val)
                     return (float(parts[0]) + float(parts[1])) / 2
                 return float(val)
             except (ValueError, IndexError):
