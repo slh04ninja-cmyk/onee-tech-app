@@ -386,8 +386,10 @@ elif st.session_state.step == "scanning":
         scan_progress.progress(1.0, text="✅ Scan terminé !")
         scan_status.success(f"✅ {len(trading_channels)} channels avec signaux trouvés sur {len(channels)} scannés")
     except Exception as e:
+        import traceback
         scan_progress.empty()
         scan_status.error(f"❌ Erreur pendant le scan : {e}")
+        st.code(traceback.format_exc(), language="python")
         st.stop()
 
     st.session_state.channels = channels
