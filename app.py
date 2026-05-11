@@ -29,40 +29,6 @@ ENV_API_ID = os.getenv("API_ID", "")
 ENV_API_HASH = os.getenv("API_HASH", "")
 
 
-# === Responsive CSS ===
-st.markdown("""
-<style>
-/* Mobile-first responsive tweaks */
-@media (max-width: 768px) {
-    .block-container { padding: 1rem 0.5rem !important; }
-    [data-testid="stMetric"] { padding: 0.4rem 0.6rem; }
-    [data-testid="stMetricLabel"] { font-size: 0.75rem !important; }
-    [data-testid="stMetricValue"] { font-size: 1.1rem !important; }
-    .stTabs [data-baseweb="tab-list"] { gap: 0.25rem; }
-    .stTabs [data-baseweb="tab"] { padding: 0.4rem 0.6rem; font-size: 0.8rem; }
-    .stDataFrame { font-size: 0.8rem; }
-    h1 { font-size: 1.4rem !important; }
-    h2, h3 { font-size: 1.1rem !important; }
-}
-
-/* Tablet tweaks */
-@media (min-width: 769px) and (max-width: 1024px) {
-    .block-container { padding: 1rem 1.5rem !important; }
-}
-
-/* Scrollable dataframe on mobile */
-[data-testid="stDataFrame"] > div {
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
-}
-
-/* PnL colors */
-.pnl-positive { color: #00c853; font-weight: bold; }
-.pnl-negative { color: #ff1744; font-weight: bold; }
-</style>
-""", unsafe_allow_html=True)
-
-
 # === API_ID Validation ===
 
 def validate_api_id(raw: str) -> int:
@@ -172,6 +138,39 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="auto"
 )
+
+# === Responsive CSS (must be after set_page_config) ===
+st.markdown("""
+<style>
+/* Mobile-first responsive tweaks */
+@media (max-width: 768px) {
+    .block-container { padding: 1rem 0.5rem !important; }
+    [data-testid="stMetric"] { padding: 0.4rem 0.6rem; }
+    [data-testid="stMetricLabel"] { font-size: 0.75rem !important; }
+    [data-testid="stMetricValue"] { font-size: 1.1rem !important; }
+    .stTabs [data-baseweb="tab-list"] { gap: 0.25rem; }
+    .stTabs [data-baseweb="tab"] { padding: 0.4rem 0.6rem; font-size: 0.8rem; }
+    .stDataFrame { font-size: 0.8rem; }
+    h1 { font-size: 1.4rem !important; }
+    h2, h3 { font-size: 1.1rem !important; }
+}
+
+/* Tablet tweaks */
+@media (min-width: 769px) and (max-width: 1024px) {
+    .block-container { padding: 1rem 1.5rem !important; }
+}
+
+/* Scrollable dataframe on mobile */
+[data-testid="stDataFrame"] > div {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+}
+
+/* PnL colors */
+.pnl-positive { color: #00c853; font-weight: bold; }
+.pnl-negative { color: #ff1744; font-weight: bold; }
+</style>
+""", unsafe_allow_html=True)
 
 st.title("🏆 Gold Trading Channel Analyzer")
 st.markdown("Analyse et classe tes channels Telegram de trading gold par rentabilité réelle.")
@@ -669,8 +668,8 @@ elif st.session_state.step == "detail":
             }
             tps = sig.get("tps", [])
             for i in range(max_tps):
-                row[f"TP{i+1}"] = tps[i] if i < len(tps) else "—"
-            row["SL"] = sig.get("sl", "—")
+                row[f"TP{i+1}"] = str(tps[i]) if i < len(tps) else "—"
+            row["SL"] = str(sig.get("sl", "—")) if sig.get("sl") is not None else "—"
             row["Résultat"] = sig.get("result", "?")
             pnl = sig.get("pnl_pips", 0)
             row["PnL (pips)"] = f"{pnl:+.0f}"
@@ -785,8 +784,8 @@ elif st.session_state.step == "results":
                             }
                             tps = sig.get("tps", [])
                             for i in range(max_tps):
-                                row[f"TP{i+1}"] = tps[i] if i < len(tps) else "—"
-                            row["SL"] = sig.get("sl", "—")
+                                row[f"TP{i+1}"] = str(tps[i]) if i < len(tps) else "—"
+                            row["SL"] = str(sig.get("sl", "—")) if sig.get("sl") is not None else "—"
                             row["Résultat"] = sig.get("result", "?")
                             row["PnL (pips)"] = f"{sig.get('pnl_pips', 0):+.0f}"
                             row["Confiance"] = f"{sig.get('confidence', 0):.0%}"
