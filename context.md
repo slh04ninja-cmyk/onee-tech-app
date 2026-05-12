@@ -8,8 +8,9 @@ Application Streamlit qui analyse et classe les channels Telegram de trading gol
 onee-tech-app/
 ├── app.py              # UI Streamlit (7 étapes) + responsive CSS + page détail channel
 ├── signal_parser.py    # Parse signaux multi-format (superscripts, ranges, parenthèses)
+├── format_detector.py  # Détection automatique du format des signaux par channel
 ├── gold_prices.py      # Prix XAUUSD via Yahoo Finance API directe (chunked 1m)
-├── backtester.py       # Backtest vs vrais prix
+├── backtester.py       # Backtest vs vrais prix + format-aware parsing
 ├── scorer.py           # Score composite 0-100 + Sharpe Ratio
 ├── bot.py              # Script original
 ├── .env                # Identifiants Telegram (gitignored)
@@ -27,6 +28,27 @@ onee-tech-app/
 - HTTP: requests (appels API directs)
 - Config: python-dotenv (chargement .env)
 - Python: 3.12 (configuré via dashboard Streamlit Cloud)
+
+## 🔍 Format Detector — Détection automatique des formats
+`format_detector.py` analyse un échantillon de messages d'un channel et retourne un `FormatProfile` :
+
+**Champs détectés :**
+- `direction_style` : text (BUY/SELL), emoji (🟢🔴), arrow (⬆️⬇️)
+- `entry_style` : labeled (ENTRY:), inline (BUY 3240), at (@3240), range
+- `tp_style` : numbered (TP1/TP2), unnumbered (TP:), emoji (✅), take_profit, superscript (TP¹)
+- `sl_style` : standard (SL:), stop_loss, emoji (🛑)
+- `pair` : XAUUSD, EURUSD, GBPUSD, BTCUSD
+- `has_superscripts` : booléen pour les chiffres Unicode
+- `signal_density` : % de messages qui sont des signaux
+- `confidence` : score de confiance global (0-1)
+
+**Intégration :**
+1. `scan_channel_quick()` → scan 50 messages + détection format → retourne `FormatProfile`
+2. Format stocké en session_state (converti en dict pour sérialisation)
+3. Affiché dans l'UI lors de la sélection (expandable par channel)
+4. `analyze_channel_full()` → utilise le profil pour un parsing format-aware (si confiance > 0.3)
+
+**Extensible :** peut être enrichi avec NLP (sentence-transformers) ou LLM (API) pour les formats complexes.
 
 ## 📊 Données prix gold — Stratégie de chunking
 Yahoo Finance limite les données 1min à 7 jours par requête. Le code utilise le chunking :
@@ -63,6 +85,8 @@ L'ancienne approche `yfinance` est remplacée par des appels directs à l'API v8
 - **Score Composite** : 0-100 (35% WR, 20% R:R, 15% Sharpe, 10% volume, 20% consistance)
 
 ## ✅ Fonctionnalités récentes
+- **Format Detector** : détection automatique du format des signaux par channel (direction style, entry style, TP style, SL style, paire, superscripts). Retourne un `FormatProfile` avec score de confiance et parsing hints. Affiché dans l'UI lors de la sélection des channels.
+- **Crash protection** : les steps `detail` et `results` sont wrappés dans des try/except pour éviter le crash "Received no response from server" lors du rerun Streamlit (ex: minimize/reopen Chrome). Bouton de réinitialisation en cas d'erreur.
 - **Signaux sans TP ignorés** : les signaux incomplets (pas de TP) sont filtrés avant le backtest
 - **Sharpe Ratio** : métrique de rendement ajusté au risque ajoutée au scoring
 - **Config .env** : API_ID/API_HASH chargés depuis .env, plus besoin de les entrer à chaque test
@@ -202,15 +226,17 @@ L'ancienne approche `yfinance` est remplacée par des appels directs à l'API v8
 
 ## ⚠️ Bugs non résolus
 
-### 1. Erreur pendant le scan Telegram (EN COURS)
-**Problème :** Après connexion Telegram (entrée du code de vérification), l'étape de scan s'arrête avec "Erreur pendant le scan" sans détail.
+### 1. SL PnL positif quand SL du mauvais côté (IDENTIFIÉ)
+**Problème :** Quand un signal a le SL en dessous du entry pour un SELL (ou au-dessus pour un BUY), le PnL du SL est positif au lieu de négatif. Exemple : SELL entry=4660, SL=4615 → `(4660-4615)*10 = +450` au lieu de `-450`.
 
-**Statut :** Diagnostic en cours — traceback complet ajouté pour identifier la cause. Potentiellement lié à :
-- Persistance du fichier `gold_session.session` sur Streamlit Cloud (filesystem éphémère)
-- Erreur Telethon lors de `client.start()` ou `iter_dialogs()`
-- Timeout lors du scan de nombreux channels
+**Cause :** La formule `(entry - sl) * 10` donne un nombre positif quand `entry > sl`. Le code ne vérifie pas que le SL est du bon côté par rapport au entry.
 
-**Environnement :** Streamlit Cloud, Python 3.12, Telethon 1.36.0
+**Fix en attente :** Utiliser `-abs(entry - sl) * 10` pour forcer le PnL du SL à être toujours négatif. Code prêt mais retiré temporairement pour valider le format detector d'abord.
+
+### 2. Erreur pendant le scan Telegram (RÉSOLU)
+**Problème :** Après connexion Telegram (entrée du code de vérification), l'étape de scan s'arrêtait avec "Erreur pendant le scan" sans détail.
+
+**Statut :** Résolu — le scan fonctionne maintenant correctement.
 
 ## ⚠️ Sécurité
 - API_ID/API_HASH dans `.env` (gitignore) — jamais dans le code
