@@ -140,8 +140,11 @@ TP_PATTERNS = {
 # SL patterns
 SL_PATTERNS = {
     "standard": [
-        r'\bSL\s*[:\s]*\d',
+        r'\bSL\s*[:\s_]*\d',
         r'\bSL\b',
+    ],
+    "breakout": [
+        r'SL\s+BREAKOUT',
     ],
     "stop_loss": [
         r'STOP\s*LOSS',
@@ -519,7 +522,13 @@ def get_parsing_hints(profile: FormatProfile) -> dict:
     # SL patterns
     if profile.sl_style == "standard":
         hints["sl_patterns"] = [
-            r'[\(]?SL[\)]?[:\s\-]*(\d+\.?\d*)',
+            r'[\(]?SL[\)]?[:\s\-_]*(\d+\.?\d*)',
+        ]
+    elif profile.sl_style == "breakout":
+        hints["sl_patterns"] = [
+            r'SL\s+BREAKOUT\s*[:\s]*(\d+\.?\d*)',
+            r'SL\s+[A-Z]+\s*[:\s]*(\d+\.?\d*)',
+            r'[\(]?SL[\)]?[:\s\-_]*(\d+\.?\d*)',
         ]
     elif profile.sl_style == "stop_loss":
         hints["sl_patterns"] = [

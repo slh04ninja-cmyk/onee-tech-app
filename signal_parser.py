@@ -163,8 +163,10 @@ def parse_signal(text: str, timestamp: Optional[datetime] = None) -> Optional[Tr
     # Extract ALL TP levels dynamically
     tps = _extract_all_tps(text)
 
-    # Extract SL — handle "(SL):", "SL:", "SL ", "Stop Loss:", etc.
-    sl = _extract_price(text, [r'[\(]?SL[\)]?[:\s\-]*(\d+\.?\d*)',
+    # Extract SL — handle "(SL):", "SL:", "SL_", "SL BREAKOUT", "Stop Loss:", etc.
+    sl = _extract_price(text, [r'[\(]?SL[\)]?[:\s\-_]*(\d+\.?\d*)',
+                                r'SL\s+BREAKOUT\s*[:\s]*(\d+\.?\d*)',
+                                r'SL\s+[A-Z]+\s*[:\s]*(\d+\.?\d*)',
                                 r'STOP\s*LOSS[:\s\-]*(\d+\.?\d*)',
                                 r'STOP[:\s\-]*(\d+\.?\d*)'])
 

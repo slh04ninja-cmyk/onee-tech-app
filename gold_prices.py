@@ -185,7 +185,11 @@ def check_tp_sl_hit(prices: pd.DataFrame, signal_time: datetime,
         "result": "OPEN",
         "pnl_pips": 0.0,
         "highest_tp_hit": 0,                  # 0 = none, 1 = TP1, 2 = TP2, etc.
-        "premium": 0.0                        # futures-spot premium applied
+        "premium": 0.0,                       # futures-spot premium applied
+        "debug_candles_checked": 0,           # how many candles examined
+        "debug_price_range": (0.0, 0.0),      # (lowest_low, highest_high) seen
+        "debug_adjusted_tps": [],             # adjusted TP values used
+        "debug_adjusted_sl": None,            # adjusted SL value used
     }
 
     if prices.empty:
@@ -217,10 +221,18 @@ def check_tp_sl_hit(prices: pd.DataFrame, signal_time: datetime,
     # (add premium so they match GC=F scale)
     adjusted_tps = [tp + premium for tp in tps]
     adjusted_sl = (sl + premium) if sl else None
+    result["debug_adjusted_tps"] = [round(x, 2) for x in adjusted_tps]
+    result["debug_adjusted_sl"] = round(adjusted_sl, 2) if adjusted_sl else None
+
+    lowest_low = float('inf')
+    highest_high = 0.0
 
     for idx, row in future_prices.iterrows():
         high = float(row["High"])
         low = float(row["Low"])
+        lowest_low = min(lowest_low, low)
+        highest_high = max(highest_high, high)
+        result["debug_candles_checked"] += 1
 
         if direction == "BUY":
             # Check ALL TPs — mark every TP whose level was reached
@@ -263,5 +275,10 @@ def check_tp_sl_hit(prices: pd.DataFrame, signal_time: datetime,
                     break
 
             result["max_move"] = max(result["max_move"], gc_f_at_signal - low)
+
+    result["debug_price_range"] = (
+        round(lowest_low, 2) if lowest_low != float('inf') else 0.0,
+        round(highest_high, 2)
+    )
 
     return result

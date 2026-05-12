@@ -824,6 +824,11 @@ elif st.session_state.step == "detail":
                 pnl = sig.get("pnl_pips", 0)
                 row["PnL (pips)"] = f"{pnl:+.0f}"
                 row["Confiance"] = f"{sig.get('confidence', 0):.0%}"
+                # Debug info for OPEN signals
+                if sig.get("result") == "OPEN":
+                    row["Debug Bougies"] = sig.get("debug_candles_checked", "?")
+                    row["Debug Prix Range"] = f"{sig.get('debug_price_range', ('?','?'))[0]}–{sig.get('debug_price_range', ('?','?'))[1]}"
+                    row["Debug Premium"] = sig.get("premium", "?")
                 sig_data.append(row)
             st.dataframe(pd.DataFrame(sig_data), use_container_width=True, hide_index=True)
 
@@ -946,6 +951,11 @@ elif st.session_state.step == "results":
                             row["Résultat"] = sig.get("result", "?")
                             row["PnL (pips)"] = f"{sig.get('pnl_pips', 0):+.0f}"
                             row["Confiance"] = f"{sig.get('confidence', 0):.0%}"
+                            # Debug info for OPEN signals
+                            if sig.get("result") == "OPEN":
+                                row["Bougies"] = sig.get("debug_candles_checked", "?")
+                                row["Prix Range"] = f"{sig.get('debug_price_range', ('?','?'))[0]}–{sig.get('debug_price_range', ('?','?'))[1]}"
+                                row["Premium"] = sig.get("premium", "?")
                             sig_data.append(row)
                         st.dataframe(pd.DataFrame(sig_data),
                                      use_container_width=True, hide_index=True)
