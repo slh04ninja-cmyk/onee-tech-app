@@ -186,11 +186,20 @@ defaults = {
     "phone_code_hash": "",
     "logged_in": False,
     "detail_channel": None,  # channel_id for detail view
-    "format_profiles": {},  # {channel_id: FormatProfile}
+    "format_profiles": {},  # {channel_id: dict}
 }
 for k, v in defaults.items():
     if k not in st.session_state:
         st.session_state[k] = v
+
+
+def safe_reset():
+    """Reset session state to defaults if data is corrupted."""
+    for key in list(st.session_state.keys()):
+        del st.session_state[key]
+    for k, v in defaults.items():
+        st.session_state[k] = v
+    st.rerun()
 
 
 # === Sidebar ===
@@ -563,193 +572,200 @@ elif st.session_state.step == "analyzing":
 
 # === STEP 5b: Channel Detail ===
 elif st.session_state.step == "detail":
-    ch_id = st.session_state.detail_channel
-    results = st.session_state.analysis_results
+    try:
+        ch_id = st.session_state.detail_channel
+        results = st.session_state.analysis_results
 
-    if not results or ch_id is None:
-        st.warning("Aucun détail disponible.")
-        if st.button("↩️ Retour aux résultats"):
+        if not results or ch_id is None:
+            st.warning("Aucun détail disponible.")
+            if st.button("↩️ Retour aux résultats"):
+                st.session_state.step = "results"
+                st.rerun()
+            st.stop()
+
+        # Find the channel score
+        score = next((s for s in results if s.channel_id == ch_id), None)
+        if not score:
+            st.error("Channel introuvable.")
+            if st.button("↩️ Retour aux résultats"):
+                st.session_state.step = "results"
+                st.rerun()
+            st.stop()
+
+        # Header
+        st.subheader(f"📈 {score.channel_name}")
+        st.caption(f"Channel ID: `{score.channel_id}`")
+
+        # Back button
+        if st.button("↩️ Retour au classement"):
             st.session_state.step = "results"
             st.rerun()
-        st.stop()
 
-    # Find the channel score
-    score = next((s for s in results if s.channel_id == ch_id), None)
-    if not score:
-        st.error("Channel introuvable.")
-        if st.button("↩️ Retour aux résultats"):
-            st.session_state.step = "results"
-            st.rerun()
-        st.stop()
+        st.divider()
 
-    # Header
-    st.subheader(f"📈 {score.channel_name}")
-    st.caption(f"Channel ID: `{score.channel_id}`")
+        # === KPIs ===
+        k1, k2, k3, k4, k5 = st.columns(5)
+        k1.metric("🏆 Score", f"{score.score}/100")
+        k2.metric("🎯 Win Rate", f"{score.win_rate}%")
+        k3.metric("📊 Signaux", score.total_signals)
+        k4.metric("💰 PnL Total", f"{score.total_pnl_pips:+.0f} pips")
+        k5.metric("📐 R:R", score.risk_reward_ratio)
 
-    # Back button
-    if st.button("↩️ Retour au classement"):
-        st.session_state.step = "results"
-        st.rerun()
+        k6, k7, k8, k9, k10 = st.columns(5)
+        k6.metric("✅ Wins", score.wins)
+        k7.metric("❌ Losses", score.losses)
+        k8.metric("⏳ Open", score.open_signals)
+        k9.metric("📈 Sharpe", score.sharpe_ratio)
+        k10.metric("⏱️ Temps moyen", f"{score.avg_time_to_result_hours:.1f}h")
 
-    st.divider()
+        st.divider()
 
-    # === KPIs ===
-    k1, k2, k3, k4, k5 = st.columns(5)
-    k1.metric("🏆 Score", f"{score.score}/100")
-    k2.metric("🎯 Win Rate", f"{score.win_rate}%")
-    k3.metric("📊 Signaux", score.total_signals)
-    k4.metric("💰 PnL Total", f"{score.total_pnl_pips:+.0f} pips")
-    k5.metric("📐 R:R", score.risk_reward_ratio)
+        # === Charts ===
+        if score.signals:
+            pnl_df = build_pnl_curve(score.signals)
 
-    k6, k7, k8, k9, k10 = st.columns(5)
-    k6.metric("✅ Wins", score.wins)
-    k7.metric("❌ Losses", score.losses)
-    k8.metric("⏳ Open", score.open_signals)
-    k9.metric("📈 Sharpe", score.sharpe_ratio)
-    k10.metric("⏱️ Temps moyen", f"{score.avg_time_to_result_hours:.1f}h")
+            chart1, chart2 = st.columns([2, 1])
 
-    st.divider()
+            with chart1:
+                st.subheader("📉 Courbe de PnL cumulé")
+                if not pnl_df.empty and "Date" in pnl_df.columns:
+                    fig = go.Figure()
+                    fig.add_trace(go.Scatter(
+                        x=pnl_df["Date"], y=pnl_df["Cumulé"],
+                        mode="lines+markers",
+                        name="PnL cumulé",
+                        line=dict(color="#1976D2", width=2),
+                        marker=dict(size=5),
+                        fill="tozeroy",
+                        fillcolor="rgba(25, 118, 210, 0.1)",
+                        hovertemplate="<b>%{x}</b><br>PnL cumulé: %{y:+.1f} pips<extra></extra>"
+                    ))
+                    fig.update_layout(
+                        xaxis_title="Date", yaxis_title="PnL cumulé (pips)",
+                        height=400, margin=dict(l=0, r=0, t=30, b=0),
+                        hovermode="x unified"
+                    )
+                    fig.add_hline(y=0, line_dash="dash", line_color="gray", opacity=0.5)
+                    st.plotly_chart(fig, use_container_width=True)
+                else:
+                    st.info("Pas assez de données pour la courbe de PnL")
 
-    # === Charts ===
-    if score.signals:
-        pnl_df = build_pnl_curve(score.signals)
+            with chart2:
+                st.subheader("🎯 Répartition")
+                result_counts = {}
+                for sig in score.signals:
+                    r = sig.get("result", "OPEN")
+                    result_counts[r] = result_counts.get(r, 0) + 1
 
-        chart1, chart2 = st.columns([2, 1])
+                if result_counts:
+                    colors = {"TP1": "#4CAF50", "TP2": "#66BB6A", "TP3": "#81C784",
+                              "TP4": "#A5D6A7", "TP5": "#C8E6C9", "TP6": "#E8F5E9",
+                              "SL": "#EF5350", "OPEN": "#90A4AE"}
+                    fig_pie = go.Figure(data=[go.Pie(
+                        labels=list(result_counts.keys()),
+                        values=list(result_counts.values()),
+                        marker_colors=[colors.get(k, "#90A4AE") for k in result_counts.keys()],
+                        hole=0.4,
+                        textinfo="label+percent",
+                        textposition="outside"
+                    )])
+                    fig_pie.update_layout(
+                        height=400, margin=dict(l=0, r=0, t=30, b=0),
+                        showlegend=False
+                    )
+                    st.plotly_chart(fig_pie, use_container_width=True)
 
-        with chart1:
-            st.subheader("📉 Courbe de PnL cumulé")
-            if not pnl_df.empty and "Date" in pnl_df.columns:
-                fig = go.Figure()
-                fig.add_trace(go.Scatter(
-                    x=pnl_df["Date"], y=pnl_df["Cumulé"],
-                    mode="lines+markers",
-                    name="PnL cumulé",
-                    line=dict(color="#1976D2", width=2),
-                    marker=dict(size=5),
-                    fill="tozeroy",
-                    fillcolor="rgba(25, 118, 210, 0.1)",
-                    hovertemplate="<b>%{x}</b><br>PnL cumulé: %{y:+.1f} pips<extra></extra>"
-                ))
-                fig.update_layout(
-                    xaxis_title="Date", yaxis_title="PnL cumulé (pips)",
-                    height=400, margin=dict(l=0, r=0, t=30, b=0),
-                    hovermode="x unified"
-                )
-                # Zero line
-                fig.add_hline(y=0, line_dash="dash", line_color="gray", opacity=0.5)
-                st.plotly_chart(fig, use_container_width=True)
-            else:
-                st.info("Pas assez de données pour la courbe de PnL")
-
-        with chart2:
-            st.subheader("🎯 Répartition")
-            result_counts = {}
-            for sig in score.signals:
-                r = sig.get("result", "OPEN")
-                result_counts[r] = result_counts.get(r, 0) + 1
-
-            if result_counts:
-                colors = {"TP1": "#4CAF50", "TP2": "#66BB6A", "TP3": "#81C784",
-                          "TP4": "#A5D6A7", "TP5": "#C8E6C9", "TP6": "#E8F5E9",
-                          "SL": "#EF5350", "OPEN": "#90A4AE"}
-                fig_pie = go.Figure(data=[go.Pie(
-                    labels=list(result_counts.keys()),
-                    values=list(result_counts.values()),
-                    marker_colors=[colors.get(k, "#90A4AE") for k in result_counts.keys()],
-                    hole=0.4,
-                    textinfo="label+percent",
-                    textposition="outside"
+            # PnL par signal
+            st.subheader("📊 PnL par signal")
+            if not pnl_df.empty:
+                bar_colors = ["#4CAF50" if p >= 0 else "#EF5350" for p in pnl_df["PnL"]]
+                fig_bar = go.Figure(data=[go.Bar(
+                    x=list(range(1, len(pnl_df) + 1)),
+                    y=pnl_df["PnL"],
+                    marker_color=bar_colors,
+                    hovertemplate="Signal #%{x}<br>PnL: %{y:+.1f} pips<extra></extra>"
                 )])
-                fig_pie.update_layout(
-                    height=400, margin=dict(l=0, r=0, t=30, b=0),
-                    showlegend=False
+                fig_bar.update_layout(
+                    xaxis_title="Signal #", yaxis_title="PnL (pips)",
+                    height=300, margin=dict(l=0, r=0, t=30, b=0)
                 )
-                st.plotly_chart(fig_pie, use_container_width=True)
+                fig_bar.add_hline(y=0, line_dash="dash", line_color="gray", opacity=0.5)
+                st.plotly_chart(fig_bar, use_container_width=True)
 
-        # PnL par signal
-        st.subheader("📊 PnL par signal")
-        if not pnl_df.empty:
-            bar_colors = ["#4CAF50" if p >= 0 else "#EF5350" for p in pnl_df["PnL"]]
-            fig_bar = go.Figure(data=[go.Bar(
-                x=list(range(1, len(pnl_df) + 1)),
-                y=pnl_df["PnL"],
-                marker_color=bar_colors,
-                hovertemplate="Signal #%{x}<br>PnL: %{y:+.1f} pips<extra></extra>"
-            )])
-            fig_bar.update_layout(
-                xaxis_title="Signal #", yaxis_title="PnL (pips)",
-                height=300, margin=dict(l=0, r=0, t=30, b=0)
-            )
-            fig_bar.add_hline(y=0, line_dash="dash", line_color="gray", opacity=0.5)
-            st.plotly_chart(fig_bar, use_container_width=True)
+            # Heatmap jour/heure
+            st.subheader("🗓️ Performance par jour et heure")
+            heatmap_data = []
+            for sig in score.signals:
+                ts = sig.get("timestamp")
+                if isinstance(ts, str):
+                    try:
+                        ts = datetime.strptime(ts, "%Y-%m-%d %H:%M")
+                    except (ValueError, TypeError):
+                        continue
+                if ts and sig.get("result") in ("TP1", "TP2", "TP3", "TP4", "TP5", "TP6", "SL"):
+                    heatmap_data.append({
+                        "Jour": ts.strftime("%A"),
+                        "Heure": ts.hour,
+                        "PnL": sig.get("pnl_pips", 0)
+                    })
 
-        # Heatmap jour/heure
-        st.subheader("🗓️ Performance par jour et heure")
-        heatmap_data = []
-        for sig in score.signals:
-            ts = sig.get("timestamp")
-            if isinstance(ts, str):
-                try:
-                    ts = datetime.strptime(ts, "%Y-%m-%d %H:%M")
-                except (ValueError, TypeError):
-                    continue
-            if ts and sig.get("result") in ("TP1", "TP2", "TP3", "TP4", "TP5", "TP6", "SL"):
-                heatmap_data.append({
-                    "Jour": ts.strftime("%A"),
-                    "Heure": ts.hour,
-                    "PnL": sig.get("pnl_pips", 0)
-                })
+            if heatmap_data:
+                hm_df = pd.DataFrame(heatmap_data)
+                day_order = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+                hm_pivot = hm_df.groupby(["Jour", "Heure"])["PnL"].mean().reset_index()
+                hm_pivot["Jour"] = pd.Categorical(hm_pivot["Jour"], categories=day_order, ordered=True)
+                hm_pivot = hm_pivot.pivot(index="Jour", columns="Heure", values="PnL").fillna(0)
 
-        if heatmap_data:
-            hm_df = pd.DataFrame(heatmap_data)
-            day_order = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
-            hm_pivot = hm_df.groupby(["Jour", "Heure"])["PnL"].mean().reset_index()
-            hm_pivot["Jour"] = pd.Categorical(hm_pivot["Jour"], categories=day_order, ordered=True)
-            hm_pivot = hm_pivot.pivot(index="Jour", columns="Heure", values="PnL").fillna(0)
+                fig_hm = px.imshow(
+                    hm_pivot, color_continuous_scale="RdYlGn", aspect="auto",
+                    title="PnL moyen par jour × heure (pips)",
+                    labels=dict(x="Heure", y="Jour", color="PnL")
+                )
+                fig_hm.update_layout(height=300, margin=dict(l=0, r=0, t=30, b=0))
+                st.plotly_chart(fig_hm, use_container_width=True)
 
-            fig_hm = px.imshow(
-                hm_pivot, color_continuous_scale="RdYlGn", aspect="auto",
-                title="PnL moyen par jour × heure (pips)",
-                labels=dict(x="Heure", y="Jour", color="PnL")
-            )
-            fig_hm.update_layout(height=300, margin=dict(l=0, r=0, t=30, b=0))
-            st.plotly_chart(fig_hm, use_container_width=True)
+            # Tableau détaillé
+            st.subheader("📋 Détail des signaux")
+            max_tps = max((len(sig.get("tps", [])) for sig in score.signals), default=0)
+            sig_data = []
+            for sig in score.signals:
+                row = {
+                    "Date": sig.get("timestamp", "N/A"),
+                    "Direction": sig.get("direction", "?"),
+                    "Entry": sig.get("entry", 0),
+                }
+                tps = sig.get("tps", [])
+                for i in range(max_tps):
+                    row[f"TP{i+1}"] = str(tps[i]) if i < len(tps) else "—"
+                row["SL"] = str(sig.get("sl", "—")) if sig.get("sl") is not None else "—"
+                row["Résultat"] = sig.get("result", "?")
+                pnl = sig.get("pnl_pips", 0)
+                row["PnL (pips)"] = f"{pnl:+.0f}"
+                row["Confiance"] = f"{sig.get('confidence', 0):.0%}"
+                sig_data.append(row)
+            st.dataframe(pd.DataFrame(sig_data), use_container_width=True, hide_index=True)
 
-        # Tableau détaillé
-        st.subheader("📋 Détail des signaux")
-        max_tps = max((len(sig.get("tps", [])) for sig in score.signals), default=0)
-        sig_data = []
-        for sig in score.signals:
-            row = {
-                "Date": sig.get("timestamp", "N/A"),
-                "Direction": sig.get("direction", "?"),
-                "Entry": sig.get("entry", 0),
-            }
-            tps = sig.get("tps", [])
-            for i in range(max_tps):
-                row[f"TP{i+1}"] = str(tps[i]) if i < len(tps) else "—"
-            row["SL"] = str(sig.get("sl", "—")) if sig.get("sl") is not None else "—"
-            row["Résultat"] = sig.get("result", "?")
-            pnl = sig.get("pnl_pips", 0)
-            row["PnL (pips)"] = f"{pnl:+.0f}"
-            row["Confiance"] = f"{sig.get('confidence', 0):.0%}"
-            sig_data.append(row)
-        st.dataframe(pd.DataFrame(sig_data), use_container_width=True, hide_index=True)
+        else:
+            st.info("Aucun signal dans ce channel.")
 
-    else:
-        st.info("Aucun signal dans ce channel.")
+    except Exception as e:
+        st.error(f"❌ Erreur lors de l'affichage du détail : {e}")
+        if st.button("↩️ Retour aux résultats", key="reset_detail"):
+            st.session_state.step = "results"
+            st.rerun()
 
 
 # === STEP 6: Results ===
 elif st.session_state.step == "results":
-    results = st.session_state.analysis_results
-    if not results:
-        st.warning("Aucun résultat. Réessaie avec d'autres channels.")
-        if st.button("🔄 Recommencer"):
-            st.session_state.step = "select"
-            st.rerun()
-    else:
-        st.subheader("🏆 Classement des Channels")
+    try:
+        results = st.session_state.analysis_results
+        if not results:
+            st.warning("Aucun résultat. Réessaie avec d'autres channels.")
+            if st.button("🔄 Recommencer"):
+                st.session_state.step = "select"
+                st.rerun()
+        else:
+            st.subheader("🏆 Classement des Channels")
 
         # Top cards — responsive: 4 cols on desktop, 2 on tablet, 1 on mobile
         num_cards = min(len(results), 4)
@@ -893,3 +909,9 @@ elif st.session_state.step == "results":
                 for key in list(st.session_state.keys()):
                     del st.session_state[key]
                 st.rerun()
+
+    except Exception as e:
+        st.error(f"❌ Erreur lors de l'affichage des résultats : {e}")
+        st.info("Les données peuvent être corrompues. Réinitialise pour continuer.")
+        if st.button("🔄 Réinitialiser", key="reset_results"):
+            safe_reset()
