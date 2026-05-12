@@ -20,6 +20,7 @@ from signal_parser import parse_signal, TradeSignal
 from gold_prices import fetch_gold_prices, check_tp_sl_hit
 from backtester import scan_channel_quick, run_full_analysis
 from scorer import ChannelScore, score_channels, format_score_report
+from format_detector import FormatProfile
 
 # Charger les variables d'environnement depuis .env
 load_dotenv()
@@ -186,6 +187,7 @@ defaults = {
     "phone_code_hash": "",
     "logged_in": False,
     "detail_channel": None,  # channel_id for detail view
+    "format_profiles": {},  # {channel_id: FormatProfile}
 }
 for k, v in defaults.items():
     if k not in st.session_state:
@@ -391,7 +393,8 @@ elif st.session_state.step == "scanning":
                     **ch,
                     "signal_count": scan["sample_count"],
                     "format": scan["format"],
-                    "total_messages": scan.get("total_messages", 0)
+                    "total_messages": scan.get("total_messages", 0),
+                    "format_profile": scan.get("format_profile"),
                 })
 
         scan_progress.progress(1.0, text="✅ Scan terminé !")
@@ -405,6 +408,15 @@ elif st.session_state.step == "scanning":
 
     st.session_state.channels = channels
     st.session_state.trading_channels = trading_channels
+
+    # Store format profiles for later use
+    format_profiles = {}
+    for ch in trading_channels:
+        fp = ch.get("format_profile")
+        if fp:
+            format_profiles[ch["id"]] = fp
+    st.session_state.format_profiles = format_profiles
+
     st.session_state.step = "select"
     st.rerun()
 
@@ -425,6 +437,25 @@ elif st.session_state.step == "select":
         st.success(
             f"🎯 {len(trading)} channels avec signaux trouvés sur {len(all_channels)} total"
         )
+
+        # Show format detection info
+        for ch in trading:
+            fp = ch.get("format_profile")
+            if fp and fp.confidence > 0.3:
+                with st.expander(f"🔍 Format détecté — {ch['title'][:30]}", expanded=False):
+                    c1, c2, c3, c4 = st.columns(4)
+                    c1.metric("Direction", fp.direction_style.title())
+                    c2.metric("Entry", fp.entry_style.title())
+                    c3.metric("TP", fp.tp_style.title())
+                    c4.metric("SL", fp.sl_style.title())
+                    st.caption(
+                        f"📊 {fp.sample_size} messages analysés · "
+                        f"Densité signaux: {fp.signal_density:.0%} · "
+                        f"Confiance: {fp.confidence:.0%} · "
+                        f"TP moyen: {fp.avg_tp_count:.1f} · "
+                        f"Paire: {fp.pair}"
+                    )
+
         df = pd.DataFrame(trading).rename(columns={
             "id": "ID", "title": "Channel", "signal_count": "Signaux détectés",
             "format": "Format", "username": "Username"
@@ -436,10 +467,22 @@ elif st.session_state.step == "select":
         )
         selected_ids = {ch["id"]: ch["title"] for ch in trading if ch["title"] in selected}
         st.session_state.selected_channels = selected_ids
-        st.dataframe(
-            df[["ID", "Channel", "Username", "Signaux détectés", "Format"]],
-            use_container_width=True, hide_index=True
-        )
+
+        # Build display dataframe with format info
+        display_data = []
+        for ch in trading:
+            fp = ch.get("format_profile")
+            display_data.append({
+                "ID": ch["id"],
+                "Channel": ch["title"],
+                "Username": ch["username"],
+                "Signaux": ch["signal_count"],
+                "Format": ch["format"],
+                "Direction": fp.direction_style.title() if fp else "—",
+                "TP Style": fp.tp_style.title() if fp else "—",
+                "Confiance": f"{fp.confidence:.0%}" if fp else "—",
+            })
+        st.dataframe(pd.DataFrame(display_data), use_container_width=True, hide_index=True)
         st.divider()
         col1, col2 = st.columns(2)
         with col1:
@@ -496,7 +539,8 @@ elif st.session_state.step == "analyzing":
         await client.start()
         try:
             return await run_full_analysis(
-                client, channel_ids, days, progress_callback=update_progress
+                client, channel_ids, days, progress_callback=update_progress,
+                format_profiles=st.session_state.format_profiles
             )
         finally:
             await client.disconnect()
