@@ -237,8 +237,7 @@ def check_tp_sl_hit(prices: pd.DataFrame, signal_time: datetime,
                 if adjusted_sl and not result["sl_hit"] and low <= adjusted_sl:
                     result["sl_hit"] = True
                     result["sl_time"] = idx
-                    # SL PnL is ALWAYS negative (loss)
-                    result["pnl_pips"] = -abs(sl - entry) * 10
+                    result["pnl_pips"] = (sl - entry) * 10
                     result["result"] = "SL"
                     break
 
@@ -259,8 +258,7 @@ def check_tp_sl_hit(prices: pd.DataFrame, signal_time: datetime,
                 if adjusted_sl and not result["sl_hit"] and high >= adjusted_sl:
                     result["sl_hit"] = True
                     result["sl_time"] = idx
-                    # SL PnL is ALWAYS negative (loss)
-                    result["pnl_pips"] = -abs(entry - sl) * 10
+                    result["pnl_pips"] = (entry - sl) * 10
                     result["result"] = "SL"
                     break
 
