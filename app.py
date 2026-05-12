@@ -57,16 +57,34 @@ _executor = concurrent.futures.ThreadPoolExecutor(max_workers=2)
 
 
 def run_telethon(coro_func, *args, **kwargs):
-    """Exécute une coroutine Telethon dans un thread avec son propre event loop."""
+    """Exécute une coroutine Telethon dans un thread avec son propre event loop.
+
+    Résilient aux déconnexions WebSocket (Chrome minimize/restore).
+    """
     def _wrapper():
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         try:
             return loop.run_until_complete(coro_func(*args, **kwargs))
         finally:
-            loop.run_until_complete(loop.shutdown_asyncgens())
-            loop.close()
-    return _executor.submit(_wrapper).result(timeout=180)
+            try:
+                loop.run_until_complete(loop.shutdown_asyncgens())
+            except Exception:
+                pass
+            try:
+                loop.close()
+            except Exception:
+                pass
+    try:
+        return _executor.submit(_wrapper).result(timeout=180)
+    except concurrent.futures.TimeoutError:
+        raise Exception("⏱️ Timeout: l'opération Telegram a pris trop de temps. Réessaie.")
+    except Exception as e:
+        # Re-raise with cleaner message for connection errors
+        err = str(e)
+        if "connection" in err.lower() or "websocket" in err.lower():
+            raise Exception(f"🔌 Connexion perdue: {err}")
+        raise
 
 
 # === Async helpers ===
@@ -175,6 +193,34 @@ st.markdown("""
 st.title("🏆 Gold Trading Channel Analyzer")
 st.markdown("Analyse et classe tes channels Telegram de trading gold par rentabilité réelle.")
 
+# === Crash Protection ===
+# When Chrome is minimized/restored, Streamlit loses the WebSocket connection
+# and reruns the script from the top. If a long operation (scan, analyze) was
+# in progress, this causes a crash. We protect against this by:
+# 1. Wrapping every step in try/except with a recovery UI
+# 2. Using a processing flag to skip re-execution during long operations
+# 3. Catching telethon/connection errors globally
+
+def show_crash_recovery(error_msg: str = ""):
+    """Show a recovery UI when a step crashes."""
+    st.error("⚠️ Une erreur est survenue (connexion perdue ?).")
+    if error_msg:
+        with st.expander("Détails de l'erreur"):
+            st.code(str(error_msg), language="python")
+    st.info("Clique ci-dessous pour réinitialiser et recommencer.")
+    if st.button("🔄 Réinitialiser", key=f"reset_crash_{st.session_state.get('step', 'unknown')}"):
+        # Clean up session files
+        for sess_file in ["gold_session.session", "gold_session.session-journal"]:
+            if os.path.exists(sess_file):
+                try:
+                    os.remove(sess_file)
+                except OSError:
+                    pass
+        for key in list(st.session_state.keys()):
+            del st.session_state[key]
+        st.rerun()
+
+
 # === Session State ===
 defaults = {
     "step": "config",
@@ -187,6 +233,7 @@ defaults = {
     "logged_in": False,
     "detail_channel": None,  # channel_id for detail view
     "format_profiles": {},  # {channel_id: dict}
+    "_processing": False,  # anti-re-run guard during long operations
 }
 for k, v in defaults.items():
     if k not in st.session_state:
@@ -227,161 +274,177 @@ def is_likely_trading_channel(title: str) -> bool:
 
 # === STEP 1: Config & Login ===
 if st.session_state.step == "config":
-    col1, col2 = st.columns([2, 1])
-    with col1:
-        st.subheader("📱 Connexion Telegram")
-        phone = st.text_input("Numéro de téléphone", placeholder="+212XXXXXXXXX")
-        if st.button("📨 Envoyer le code", type="primary"):
-            if not ENV_API_ID or not ENV_API_HASH:
-                st.error("API_ID et API_HASH doivent être configurés dans le fichier `.env`")
-            elif not phone:
-                st.error("Entre ton numéro de téléphone.")
-            else:
-                try:
-                    _api_id = validate_api_id(ENV_API_ID)
-                except ValueError as e:
-                    st.error(str(e))
-                    st.stop()
-                with st.spinner("🔄 Connexion à Telegram..."):
+    try:
+        col1, col2 = st.columns([2, 1])
+        with col1:
+            st.subheader("📱 Connexion Telegram")
+            phone = st.text_input("Numéro de téléphone", placeholder="+212XXXXXXXXX")
+            if st.button("📨 Envoyer le code", type="primary"):
+                if not ENV_API_ID or not ENV_API_HASH:
+                    st.error("API_ID et API_HASH doivent être configurés dans le fichier `.env`")
+                elif not phone:
+                    st.error("Entre ton numéro de téléphone.")
+                else:
                     try:
-                        result = run_telethon(_send_code, _api_id, ENV_API_HASH, phone)
-                        st.session_state.phone = phone
-                        if result is None:
-                            st.session_state.logged_in = True
-                            st.session_state.step = "scanning"
-                            st.toast("✅ Session Telegram existante — connexion automatique", icon="🔑")
-                        else:
-                            st.session_state.phone_code_hash = result.phone_code_hash
-                            st.session_state.step = "code"
-                        st.rerun()
-                    except Exception as e:
-                        err_msg = str(e)
-                        if "api_id" in err_msg.lower() or "api_hash" in err_msg.lower() or "invalid" in err_msg.lower():
-                            st.error(
-                                f"❌ **API_ID/API_HASH invalide**\n\n"
-                                f"Vérifie les valeurs dans le fichier `.env` :\n"
-                                f"- **API_ID** = un nombre entier court (ex: `12345678`)\n"
-                                f"- **API_HASH** = un code hexadécimal de 32 caractères (ex: `a1b2c3d4e5f6...`)\n\n"
-                                f"⚠️ Ne les inverse pas !"
-                            )
-                        else:
-                            st.error(f"Erreur: {e}")
-    with col2:
-        st.info("""
-        **Configuration requise**
-        Les identifiants Telegram doivent être dans le fichier `.env` :
-        ```
-        API_ID=12345678
-        API_HASH=a1b2c3d4...
-        ```
-        Obtén-les sur [my.telegram.org/apps](https://my.telegram.org/apps)
-        """)
+                        _api_id = validate_api_id(ENV_API_ID)
+                    except ValueError as e:
+                        st.error(str(e))
+                        st.stop()
+                    with st.spinner("🔄 Connexion à Telegram..."):
+                        try:
+                            result = run_telethon(_send_code, _api_id, ENV_API_HASH, phone)
+                            st.session_state.phone = phone
+                            if result is None:
+                                st.session_state.logged_in = True
+                                st.session_state.step = "scanning"
+                                st.toast("✅ Session Telegram existante — connexion automatique", icon="🔑")
+                            else:
+                                st.session_state.phone_code_hash = result.phone_code_hash
+                                st.session_state.step = "code"
+                            st.rerun()
+                        except Exception as e:
+                            err_msg = str(e)
+                            if "api_id" in err_msg.lower() or "api_hash" in err_msg.lower() or "invalid" in err_msg.lower():
+                                st.error(
+                                    f"❌ **API_ID/API_HASH invalide**\n\n"
+                                    f"Vérifie les valeurs dans le fichier `.env` :\n"
+                                    f"- **API_ID** = un nombre entier court (ex: `12345678`)\n"
+                                    f"- **API_HASH** = un code hexadécimal de 32 caractères (ex: `a1b2c3d4e5f6...`)\n\n"
+                                    f"⚠️ Ne les inverse pas !"
+                                )
+                            else:
+                                st.error(f"Erreur: {e}")
+        with col2:
+            st.info("""
+            **Configuration requise**
+            Les identifiants Telegram doivent être dans le fichier `.env` :
+            ```
+            API_ID=12345678
+            API_HASH=a1b2c3d4...
+            ```
+            Obtén-les sur [my.telegram.org/apps](https://my.telegram.org/apps)
+            """)
+    except Exception as e:
+        show_crash_recovery(e)
 
 
 # === STEP 2: Verification Code ===
 elif st.session_state.step == "code":
-    st.subheader("🔑 Code de vérification")
-    st.info(f"Code envoyé à **{st.session_state.phone}**")
-    code = st.text_input("Entre le code reçu", placeholder="12345")
-    col1, col2 = st.columns(2)
-    with col1:
-        if st.button("✅ Vérifier", type="primary"):
-            if not code:
-                st.error("Entre le code.")
-            else:
-                with st.spinner("🔄 Vérification..."):
-                    try:
-                        run_telethon(
-                            _sign_in_code,
-                            validate_api_id(ENV_API_ID),
-                            ENV_API_HASH,
-                            st.session_state.phone,
-                            code,
-                            st.session_state.phone_code_hash
-                        )
-                        st.session_state.logged_in = True
-                        st.session_state.step = "scanning"
-                        st.rerun()
-                    except Exception as e:
-                        err = str(e).lower()
-                        if "password" in err or "2fa" in err:
-                            st.session_state.step = "password"
+    try:
+        st.subheader("🔑 Code de vérification")
+        st.info(f"Code envoyé à **{st.session_state.phone}**")
+        code = st.text_input("Entre le code reçu", placeholder="12345")
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("✅ Vérifier", type="primary"):
+                if not code:
+                    st.error("Entre le code.")
+                else:
+                    with st.spinner("🔄 Vérification..."):
+                        try:
+                            run_telethon(
+                                _sign_in_code,
+                                validate_api_id(ENV_API_ID),
+                                ENV_API_HASH,
+                                st.session_state.phone,
+                                code,
+                                st.session_state.phone_code_hash
+                            )
+                            st.session_state.logged_in = True
+                            st.session_state.step = "scanning"
                             st.rerun()
-                        else:
-                            st.error(f"Erreur: {e}")
-    with col2:
-        if st.button("↩️ Retour"):
-            st.session_state.step = "config"
-            st.rerun()
+                        except Exception as e:
+                            err = str(e).lower()
+                            if "password" in err or "2fa" in err:
+                                st.session_state.step = "password"
+                                st.rerun()
+                            else:
+                                st.error(f"Erreur: {e}")
+        with col2:
+            if st.button("↩️ Retour"):
+                st.session_state.step = "config"
+                st.rerun()
+    except Exception as e:
+        show_crash_recovery(e)
 
 
 # === STEP 2b: 2FA ===
 elif st.session_state.step == "password":
-    st.subheader("🔐 Mot de passe 2FA")
-    password = st.text_input("Mot de passe Telegram", type="password")
-    if st.button("✅ Se connecter", type="primary"):
-        with st.spinner("🔄 Vérification du mot de passe..."):
-            try:
-                run_telethon(
-                    _sign_in_password,
-                    validate_api_id(ENV_API_ID),
-                    ENV_API_HASH,
-                    password
-                )
-                st.session_state.logged_in = True
-                st.session_state.step = "scanning"
-                st.rerun()
-            except Exception as e:
-                st.error(f"Erreur: {e}")
+    try:
+        st.subheader("🔐 Mot de passe 2FA")
+        password = st.text_input("Mot de passe Telegram", type="password")
+        if st.button("✅ Se connecter", type="primary"):
+            with st.spinner("🔄 Vérification du mot de passe..."):
+                try:
+                    run_telethon(
+                        _sign_in_password,
+                        validate_api_id(ENV_API_ID),
+                        ENV_API_HASH,
+                        password
+                    )
+                    st.session_state.logged_in = True
+                    st.session_state.step = "scanning"
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Erreur: {e}")
+    except Exception as e:
+        show_crash_recovery(e)
 
 
 # === STEP 3: Scan Channels ===
 elif st.session_state.step == "scanning":
-    st.subheader("🔍 Scan de tes channels Telegram")
-
-    if not ENV_API_ID or not ENV_API_HASH:
-        st.error("API_ID/API_HASH manquants. Vérifie le fichier `.env`.")
-        st.session_state.step = "config"
-        st.rerun()
+    # Anti-re-run guard: if we're already processing, skip execution
+    if st.session_state._processing:
+        st.info("⏳ Scan en cours... Merci de patienter.")
         st.stop()
 
-    _api_id = validate_api_id(ENV_API_ID)
-    _api_hash = ENV_API_HASH
-
-    scan_progress = st.progress(0, text="🔄 Connexion à Telegram...")
-    scan_status = st.empty()
-
-    async def _get_all_channels(api_id_val, api_hash_val):
-        """Récupère la liste des channels."""
-        client = TelegramClient("gold_session", api_id_val, api_hash_val)
-        await client.start()
-        try:
-            channels = []
-            async for dialog in client.iter_dialogs():
-                entity = dialog.entity
-                if isinstance(entity, Channel):
-                    username = getattr(entity, "username", None)
-                    channels.append({
-                        "id": entity.id,
-                        "title": entity.title,
-                        "username": f"@{username}" if username else "—",
-                        "megagroup": entity.megagroup,
-                        "likely_trading": is_likely_trading_channel(entity.title)
-                    })
-            return channels
-        finally:
-            await client.disconnect()
-
-    async def _scan_one_channel(api_id_val, api_hash_val, channel_id):
-        """Scan un seul channel pour les signaux."""
-        client = TelegramClient("gold_session", api_id_val, api_hash_val)
-        await client.start()
-        try:
-            return await scan_channel_quick(client, channel_id)
-        finally:
-            await client.disconnect()
-
     try:
+        st.session_state._processing = True
+        st.subheader("🔍 Scan de tes channels Telegram")
+
+        if not ENV_API_ID or not ENV_API_HASH:
+            st.error("API_ID/API_HASH manquants. Vérifie le fichier `.env`.")
+            st.session_state.step = "config"
+            st.session_state._processing = False
+            st.rerun()
+            st.stop()
+
+        _api_id = validate_api_id(ENV_API_ID)
+        _api_hash = ENV_API_HASH
+
+        scan_progress = st.progress(0, text="🔄 Connexion à Telegram...")
+        scan_status = st.empty()
+
+        async def _get_all_channels(api_id_val, api_hash_val):
+            """Récupère la liste des channels."""
+            client = TelegramClient("gold_session", api_id_val, api_hash_val)
+            await client.start()
+            try:
+                channels = []
+                async for dialog in client.iter_dialogs():
+                    entity = dialog.entity
+                    if isinstance(entity, Channel):
+                        username = getattr(entity, "username", None)
+                        channels.append({
+                            "id": entity.id,
+                            "title": entity.title,
+                            "username": f"@{username}" if username else "—",
+                            "megagroup": entity.megagroup,
+                            "likely_trading": is_likely_trading_channel(entity.title)
+                        })
+                return channels
+            finally:
+                await client.disconnect()
+
+        async def _scan_one_channel(api_id_val, api_hash_val, channel_id):
+            """Scan un seul channel pour les signaux."""
+            client = TelegramClient("gold_session", api_id_val, api_hash_val)
+            await client.start()
+            try:
+                return await scan_channel_quick(client, channel_id)
+            finally:
+                await client.disconnect()
+
         # Phase 1: récupérer la liste des channels
         scan_progress.progress(0.05, text="🔄 Connexion à Telegram...")
         channels = run_telethon(_get_all_channels, _api_id, _api_hash)
@@ -395,179 +458,198 @@ elif st.session_state.step == "scanning":
                 0.05 + 0.95 * ((i + 1) / total),
                 text=f"🔍 Scan {i+1}/{total} — {ch['title'][:30]}..."
             )
-            scan = run_telethon(_scan_one_channel, _api_id, _api_hash, ch["id"])
-            if scan.get("has_signals"):
-                # Convert format_profile to dict for safe session_state storage
-                fp = scan.get("format_profile")
-                fp_dict = fp.to_dict() if fp and hasattr(fp, 'to_dict') else None
-                trading_channels.append({
-                    **ch,
-                    "signal_count": scan["sample_count"],
-                    "format": scan["format"],
-                    "total_messages": scan.get("total_messages", 0),
-                    "format_profile": fp_dict,
-                })
+            try:
+                scan = run_telethon(_scan_one_channel, _api_id, _api_hash, ch["id"])
+                if scan.get("has_signals"):
+                    # Convert format_profile to dict for safe session_state storage
+                    fp = scan.get("format_profile")
+                    fp_dict = fp.to_dict() if fp and hasattr(fp, 'to_dict') else None
+                    trading_channels.append({
+                        **ch,
+                        "signal_count": scan["sample_count"],
+                        "format": scan["format"],
+                        "total_messages": scan.get("total_messages", 0),
+                        "format_profile": fp_dict,
+                    })
+            except Exception as e:
+                # Skip channel on error, continue scanning
+                print(f"Error scanning channel {ch['title']}: {e}")
+                continue
 
         scan_progress.progress(1.0, text="✅ Scan terminé !")
         scan_status.success(f"✅ {len(trading_channels)} channels avec signaux trouvés sur {total} scannés")
+
+        st.session_state.channels = channels
+        st.session_state.trading_channels = trading_channels
+
+        # Store format info as simple dicts (not FormatProfile objects)
+        format_profiles = {}
+        for ch in trading_channels:
+            fp = ch.get("format_profile")
+            if fp:
+                format_profiles[ch["id"]] = fp.to_dict() if hasattr(fp, 'to_dict') else {}
+        st.session_state.format_profiles = format_profiles
+
+        st.session_state._processing = False
+        st.session_state.step = "select"
+        st.rerun()
+
     except Exception as e:
-        import traceback
+        st.session_state._processing = False
         scan_progress.empty()
         scan_status.error(f"❌ Erreur pendant le scan : {e}")
+        import traceback
         st.code(traceback.format_exc(), language="python")
-        st.stop()
-
-    st.session_state.channels = channels
-    st.session_state.trading_channels = trading_channels
-
-    # Store format info as simple dicts (not FormatProfile objects)
-    format_profiles = {}
-    for ch in trading_channels:
-        fp = ch.get("format_profile")
-        if fp:
-            format_profiles[ch["id"]] = fp.to_dict() if hasattr(fp, 'to_dict') else {}
-    st.session_state.format_profiles = format_profiles
-
-    st.session_state.step = "select"
-    st.rerun()
+        if st.button("🔄 Réinitialiser", key="reset_scan"):
+            safe_reset()
 
 
 # === STEP 4: Select Channels ===
 elif st.session_state.step == "select":
-    st.subheader("📊 Channels avec signaux de trading détectés")
-    trading = st.session_state.trading_channels
-    all_channels = st.session_state.channels
+    try:
+        st.subheader("📊 Channels avec signaux de trading détectés")
+        trading = st.session_state.trading_channels
+        all_channels = st.session_state.channels
 
-    if not trading:
-        st.warning("Aucun channel avec des signaux de trading détecté.")
-        st.info("Vérifie que tu es bien dans des channels de trading gold.")
-        if st.button("🔄 Rescan"):
-            st.session_state.step = "scanning"
-            st.rerun()
-    else:
-        st.success(
-            f"🎯 {len(trading)} channels avec signaux trouvés sur {len(all_channels)} total"
-        )
+        if not trading:
+            st.warning("Aucun channel avec des signaux de trading détecté.")
+            st.info("Vérifie que tu es bien dans des channels de trading gold.")
+            if st.button("🔄 Rescan"):
+                st.session_state.step = "scanning"
+                st.rerun()
+        else:
+            st.success(
+                f"🎯 {len(trading)} channels avec signaux trouvés sur {len(all_channels)} total"
+            )
 
-        # Show format detection info
-        for ch in trading:
-            fp = ch.get("format_profile")
-            if fp and fp.get("confidence", 0) > 0.3:
-                with st.expander(f"🔍 Format détecté — {ch['title'][:30]}", expanded=False):
-                    c1, c2, c3, c4 = st.columns(4)
-                    c1.metric("Direction", fp.get("direction_style", "—").title())
-                    c2.metric("Entry", fp.get("entry_style", "—").title())
-                    c3.metric("TP", fp.get("tp_style", "—").title())
-                    c4.metric("SL", fp.get("sl_style", "—").title())
-                    st.caption(
-                        f"📊 {fp.get('sample_size', 0)} messages analysés · "
-                        f"Densité signaux: {fp.get('signal_density', 0):.0%} · "
-                        f"Confiance: {fp.get('confidence', 0):.0%} · "
-                        f"TP moyen: {fp.get('avg_tp_count', 1):.1f} · "
-                        f"Paire: {fp.get('pair', 'XAUUSD')}"
-                    )
+            # Show format detection info
+            for ch in trading:
+                fp = ch.get("format_profile")
+                if fp and fp.get("confidence", 0) > 0.3:
+                    with st.expander(f"🔍 Format détecté — {ch['title'][:30]}", expanded=False):
+                        c1, c2, c3, c4 = st.columns(4)
+                        c1.metric("Direction", fp.get("direction_style", "—").title())
+                        c2.metric("Entry", fp.get("entry_style", "—").title())
+                        c3.metric("TP", fp.get("tp_style", "—").title())
+                        c4.metric("SL", fp.get("sl_style", "—").title())
+                        st.caption(
+                            f"📊 {fp.get('sample_size', 0)} messages analysés · "
+                            f"Densité signaux: {fp.get('signal_density', 0):.0%} · "
+                            f"Confiance: {fp.get('confidence', 0):.0%} · "
+                            f"TP moyen: {fp.get('avg_tp_count', 1):.1f} · "
+                            f"Paire: {fp.get('pair', 'XAUUSD')}"
+                        )
 
-        df = pd.DataFrame(trading).rename(columns={
-            "id": "ID", "title": "Channel", "signal_count": "Signaux détectés",
-            "format": "Format", "username": "Username"
-        })
-        selected = st.multiselect(
-            "Sélectionne les channels à analyser en profondeur :",
-            options=[ch["title"] for ch in trading],
-            default=[ch["title"] for ch in trading]
-        )
-        selected_ids = {ch["id"]: ch["title"] for ch in trading if ch["title"] in selected}
-        st.session_state.selected_channels = selected_ids
-
-        # Build display dataframe with format info
-        display_data = []
-        for ch in trading:
-            fp = ch.get("format_profile")
-            display_data.append({
-                "ID": ch["id"],
-                "Channel": ch["title"],
-                "Username": ch["username"],
-                "Signaux": ch["signal_count"],
-                "Format": ch["format"],
-                "Direction": fp.get("direction_style", "—").title() if fp else "—",
-                "TP Style": fp.get("tp_style", "—").title() if fp else "—",
-                "Confiance": f"{fp.get('confidence', 0):.0%}" if fp else "—",
+            df = pd.DataFrame(trading).rename(columns={
+                "id": "ID", "title": "Channel", "signal_count": "Signaux détectés",
+                "format": "Format", "username": "Username"
             })
-        st.dataframe(pd.DataFrame(display_data), use_container_width=True, hide_index=True)
-        st.divider()
-        col1, col2 = st.columns(2)
-        with col1:
-            if st.button("🚀 Lancer l'analyse complète", type="primary",
-                         disabled=len(selected_ids) == 0):
-                st.session_state.step = "analyzing"
-                st.rerun()
-        with col2:
-            if st.button("🔌 Se déconnecter"):
-                for sess_file in ["gold_session.session", "gold_session.session-journal"]:
-                    if os.path.exists(sess_file):
-                        os.remove(sess_file)
-                for key in list(st.session_state.keys()):
-                    del st.session_state[key]
-                st.rerun()
+            selected = st.multiselect(
+                "Sélectionne les channels à analyser en profondeur :",
+                options=[ch["title"] for ch in trading],
+                default=[ch["title"] for ch in trading]
+            )
+            selected_ids = {ch["id"]: ch["title"] for ch in trading if ch["title"] in selected}
+            st.session_state.selected_channels = selected_ids
+
+            # Build display dataframe with format info
+            display_data = []
+            for ch in trading:
+                fp = ch.get("format_profile")
+                display_data.append({
+                    "ID": ch["id"],
+                    "Channel": ch["title"],
+                    "Username": ch["username"],
+                    "Signaux": ch["signal_count"],
+                    "Format": ch["format"],
+                    "Direction": fp.get("direction_style", "—").title() if fp else "—",
+                    "TP Style": fp.get("tp_style", "—").title() if fp else "—",
+                    "Confiance": f"{fp.get('confidence', 0):.0%}" if fp else "—",
+                })
+            st.dataframe(pd.DataFrame(display_data), use_container_width=True, hide_index=True)
+            st.divider()
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button("🚀 Lancer l'analyse complète", type="primary",
+                             disabled=len(selected_ids) == 0):
+                    st.session_state.step = "analyzing"
+                    st.rerun()
+            with col2:
+                if st.button("🔌 Se déconnecter"):
+                    for sess_file in ["gold_session.session", "gold_session.session-journal"]:
+                        if os.path.exists(sess_file):
+                            os.remove(sess_file)
+                    for key in list(st.session_state.keys()):
+                        del st.session_state[key]
+                    st.rerun()
+    except Exception as e:
+        show_crash_recovery(e)
 
 
 # === STEP 5: Full Analysis ===
 elif st.session_state.step == "analyzing":
-    st.subheader("🔬 Analyse en cours...")
-    days = analysis_days
-
-    # Phase 1: Récupération des prix
-    price_progress = st.progress(0, text="📈 Récupération des prix gold...")
-    price_status = st.empty()
-
-    price_status.text("⏳ Chargement des données Yahoo Finance (jusqu'à 28 jours en 1min)...")
-    price_progress.progress(0.1)
-
-    with st.spinner(""):
-        gold_prices = fetch_gold_prices(days=days + 5, interval="1m")
-
-    price_progress.progress(0.3, text="✅ Prix gold récupérés")
-    price_status.success(f"✅ {len(gold_prices)} bougies chargées")
-
-    # Phase 2: Analyse des channels
-    analysis_progress = st.progress(0, text="🔬 Analyse des channels...")
-    analysis_status = st.empty()
-
-    def update_progress(current, total, name):
-        try:
-            pct = 0.3 + 0.7 * (current / total)
-            analysis_progress.progress(pct, text=f"🔬 Analyse: {name[:30]}... ({current}/{total})")
-            analysis_status.text(f"📊 {current}/{total} — {name}")
-        except Exception:
-            pass
-
-    _api_id = validate_api_id(ENV_API_ID)
-    _api_hash = ENV_API_HASH
-    selected = st.session_state.selected_channels
-
-    async def _run_full(api_id_val, api_hash_val, channel_ids):
-        client = TelegramClient("gold_session", api_id_val, api_hash_val)
-        await client.start()
-        try:
-            return await run_full_analysis(
-                client, channel_ids, days, progress_callback=update_progress,
-                format_profiles=None  # TODO: reconstruct FormatProfile from dicts
-            )
-        finally:
-            await client.disconnect()
+    # Anti-re-run guard
+    if st.session_state._processing:
+        st.info("⏳ Analyse en cours... Merci de patienter.")
+        st.stop()
 
     try:
+        st.session_state._processing = True
+        st.subheader("🔬 Analyse en cours...")
+        days = analysis_days
+
+        # Phase 1: Récupération des prix
+        price_progress = st.progress(0, text="📈 Récupération des prix gold...")
+        price_status = st.empty()
+
+        price_status.text("⏳ Chargement des données Yahoo Finance (jusqu'à 28 jours en 1min)...")
+        price_progress.progress(0.1)
+
+        with st.spinner(""):
+            gold_prices = fetch_gold_prices(days=days + 5, interval="1m")
+
+        price_progress.progress(0.3, text="✅ Prix gold récupérés")
+        price_status.success(f"✅ {len(gold_prices)} bougies chargées")
+
+        # Phase 2: Analyse des channels
+        analysis_progress = st.progress(0, text="🔬 Analyse des channels...")
+        analysis_status = st.empty()
+
+        def update_progress(current, total, name):
+            try:
+                pct = 0.3 + 0.7 * (current / total)
+                analysis_progress.progress(pct, text=f"🔬 Analyse: {name[:30]}... ({current}/{total})")
+                analysis_status.text(f"📊 {current}/{total} — {name}")
+            except Exception:
+                pass
+
+        _api_id = validate_api_id(ENV_API_ID)
+        _api_hash = ENV_API_HASH
+        selected = st.session_state.selected_channels
+
+        async def _run_full(api_id_val, api_hash_val, channel_ids):
+            client = TelegramClient("gold_session", api_id_val, api_hash_val)
+            await client.start()
+            try:
+                return await run_full_analysis(
+                    client, channel_ids, days, progress_callback=update_progress,
+                    format_profiles=None  # TODO: reconstruct FormatProfile from dicts
+                )
+            finally:
+                await client.disconnect()
+
         results = run_telethon(_run_full, _api_id, _api_hash, selected)
         analysis_progress.progress(1.0, text="✅ Analyse terminée !")
         analysis_status.success(f"✅ {len(results)} channels analysés")
-    except Exception as e:
-        analysis_progress.empty()
-        analysis_status.error(f"❌ Erreur pendant l'analyse : {e}")
-        st.stop()
 
-    st.session_state.analysis_results = results
-    st.session_state.step = "results"
-    st.rerun()
+        st.session_state.analysis_results = results
+        st.session_state._processing = False
+        st.session_state.step = "results"
+        st.rerun()
+
+    except Exception as e:
+        st.session_state._processing = False
+        show_crash_recovery(e)
 
 
 # === STEP 5b: Channel Detail ===
