@@ -20,7 +20,6 @@ from signal_parser import parse_signal, TradeSignal
 from gold_prices import fetch_gold_prices, check_tp_sl_hit
 from backtester import scan_channel_quick, run_full_analysis
 from scorer import ChannelScore, score_channels, format_score_report
-from format_detector import FormatProfile
 
 # Charger les variables d'environnement depuis .env
 load_dotenv()
@@ -389,12 +388,15 @@ elif st.session_state.step == "scanning":
             )
             scan = run_telethon(_scan_one_channel, _api_id, _api_hash, ch["id"])
             if scan.get("has_signals"):
+                # Convert format_profile to dict for safe session_state storage
+                fp = scan.get("format_profile")
+                fp_dict = fp.to_dict() if fp and hasattr(fp, 'to_dict') else None
                 trading_channels.append({
                     **ch,
                     "signal_count": scan["sample_count"],
                     "format": scan["format"],
                     "total_messages": scan.get("total_messages", 0),
-                    "format_profile": scan.get("format_profile"),
+                    "format_profile": fp_dict,
                 })
 
         scan_progress.progress(1.0, text="✅ Scan terminé !")
@@ -409,12 +411,12 @@ elif st.session_state.step == "scanning":
     st.session_state.channels = channels
     st.session_state.trading_channels = trading_channels
 
-    # Store format profiles for later use
+    # Store format info as simple dicts (not FormatProfile objects)
     format_profiles = {}
     for ch in trading_channels:
         fp = ch.get("format_profile")
         if fp:
-            format_profiles[ch["id"]] = fp
+            format_profiles[ch["id"]] = fp.to_dict() if hasattr(fp, 'to_dict') else {}
     st.session_state.format_profiles = format_profiles
 
     st.session_state.step = "select"
@@ -441,19 +443,19 @@ elif st.session_state.step == "select":
         # Show format detection info
         for ch in trading:
             fp = ch.get("format_profile")
-            if fp and fp.confidence > 0.3:
+            if fp and fp.get("confidence", 0) > 0.3:
                 with st.expander(f"🔍 Format détecté — {ch['title'][:30]}", expanded=False):
                     c1, c2, c3, c4 = st.columns(4)
-                    c1.metric("Direction", fp.direction_style.title())
-                    c2.metric("Entry", fp.entry_style.title())
-                    c3.metric("TP", fp.tp_style.title())
-                    c4.metric("SL", fp.sl_style.title())
+                    c1.metric("Direction", fp.get("direction_style", "—").title())
+                    c2.metric("Entry", fp.get("entry_style", "—").title())
+                    c3.metric("TP", fp.get("tp_style", "—").title())
+                    c4.metric("SL", fp.get("sl_style", "—").title())
                     st.caption(
-                        f"📊 {fp.sample_size} messages analysés · "
-                        f"Densité signaux: {fp.signal_density:.0%} · "
-                        f"Confiance: {fp.confidence:.0%} · "
-                        f"TP moyen: {fp.avg_tp_count:.1f} · "
-                        f"Paire: {fp.pair}"
+                        f"📊 {fp.get('sample_size', 0)} messages analysés · "
+                        f"Densité signaux: {fp.get('signal_density', 0):.0%} · "
+                        f"Confiance: {fp.get('confidence', 0):.0%} · "
+                        f"TP moyen: {fp.get('avg_tp_count', 1):.1f} · "
+                        f"Paire: {fp.get('pair', 'XAUUSD')}"
                     )
 
         df = pd.DataFrame(trading).rename(columns={
@@ -478,9 +480,9 @@ elif st.session_state.step == "select":
                 "Username": ch["username"],
                 "Signaux": ch["signal_count"],
                 "Format": ch["format"],
-                "Direction": fp.direction_style.title() if fp else "—",
-                "TP Style": fp.tp_style.title() if fp else "—",
-                "Confiance": f"{fp.confidence:.0%}" if fp else "—",
+                "Direction": fp.get("direction_style", "—").title() if fp else "—",
+                "TP Style": fp.get("tp_style", "—").title() if fp else "—",
+                "Confiance": f"{fp.get('confidence', 0):.0%}" if fp else "—",
             })
         st.dataframe(pd.DataFrame(display_data), use_container_width=True, hide_index=True)
         st.divider()
@@ -540,7 +542,7 @@ elif st.session_state.step == "analyzing":
         try:
             return await run_full_analysis(
                 client, channel_ids, days, progress_callback=update_progress,
-                format_profiles=st.session_state.format_profiles
+                format_profiles=None  # TODO: reconstruct FormatProfile from dicts
             )
         finally:
             await client.disconnect()
