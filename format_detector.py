@@ -115,11 +115,11 @@ ENTRY_PATTERNS = {
 # TP patterns
 TP_PATTERNS = {
     "numbered": [
-        r'TP\s*\d+\s*[:\s]*\d{4}',
+        r'TP[\.\s]*\d+\s*[:\s]*\d{4}',
         r'TAKE\s*PROFIT\s*\d',
     ],
     "unnumbered": [
-        r'\bTP\s*[:\s]+\d{4}',
+        r'\bTP[\.\s]*[:\s]+\d{4}',
     ],
     "emoji_check": [
         r'✅\s*TP',
@@ -129,7 +129,7 @@ TP_PATTERNS = {
         r'TAKE\s*PROFIT',
     ],
     "superscript": [
-        r'TP[\u00b9\u00b2\u00b3\u2070-\u2079]',
+        r'TP[\.\s]*[\u00b9\u00b2\u00b3\u2070-\u2079]',
     ],
     "target": [
         r'TARGET\s*\d',
@@ -140,7 +140,7 @@ TP_PATTERNS = {
 # SL patterns
 SL_PATTERNS = {
     "standard": [
-        r'\bSL\s*[:\s_]*\d',
+        r'\bSL[\.\s]*[:\s_]*\d',
         r'\bSL\b',
     ],
     "breakout": [
@@ -148,7 +148,7 @@ SL_PATTERNS = {
     ],
     "stop_loss": [
         r'STOP\s*LOSS',
-        r'STOP\s*[:\s]*\d{4}',
+        r'STOP\s*[:\s\.]*\d{4}',
     ],
     "emoji_stop": [
         r'🛑\s*(SL|STOP)',
@@ -498,42 +498,42 @@ def get_parsing_hints(profile: FormatProfile) -> dict:
     # TP patterns
     if profile.tp_style == "numbered":
         hints["tp_patterns"] = [
-            r'TP\s*(\d+)\s*[:\s\-]*(\d+\.?\d*)',
+            r'TP[\.\s]*(\d+)\s*[:\s\-]*\(?(\d+\.?\d*)\)?',
         ]
     elif profile.tp_style == "unnumbered":
         hints["tp_patterns"] = [
-            r'\bTP\s*[:\s]+(\d+\.?\d*)',
+            r'\bTP[\.\s]*[:\s]+\(?(\d+\.?\d*)\)?',
         ]
     elif profile.tp_style == "emoji_check":
         hints["tp_patterns"] = [
-            r'✅\s*TP\s*(\d+)\s*[:\s]*(\d+\.?\d*)',
-            r'TP\s*(\d+)\s*✅\s*[:\s]*(\d+\.?\d*)',
+            r'✅\s*TP[\.\s]*(\d+)\s*[:\s]*\(?(\d+\.?\d*)\)?',
+            r'TP[\.\s]*(\d+)\s*✅\s*[:\s]*\(?(\d+\.?\d*)\)?',
         ]
     elif profile.tp_style == "take_profit":
         hints["tp_patterns"] = [
-            r'TAKE\s*PROFIT\s*(\d+)?\s*[:\s\-]*(\d+\.?\d*)',
+            r'TAKE\s*PROFIT\s*(\d+)?\s*[:\s\-]*\(?(\d+\.?\d*)\)?',
         ]
 
     if profile.has_superscripts:
         hints["tp_patterns"].insert(0,
-            r'TP[\u00b9\u00b2\u00b3\u2070-\u2079]\s*[:\s\-]*(\d+\.?\d*)'
+            r'TP[\.\s]*[\u00b9\u00b2\u00b3\u2070-\u2079]\s*[:\s\-]*\(?(\d+\.?\d*)\)?'
         )
 
     # SL patterns
     if profile.sl_style == "standard":
         hints["sl_patterns"] = [
-            r'[\(]?SL[\)]?[:\s\-_]*(\d+\.?\d*)',
+            r'[\(]?SL[\)]?[:\s\-_\.]*\(?(\d+\.?\d*)\)?',
         ]
     elif profile.sl_style == "breakout":
         hints["sl_patterns"] = [
-            r'SL\s+BREAKOUT\s*[:\s]*(\d+\.?\d*)',
-            r'SL\s+[A-Z]+\s*[:\s]*(\d+\.?\d*)',
-            r'[\(]?SL[\)]?[:\s\-_]*(\d+\.?\d*)',
+            r'SL\s+BREAKOUT\s*[:\s\.]*\(?(\d+\.?\d*)\)?',
+            r'SL\s+[A-Z]+\s*[:\s\.]*\(?(\d+\.?\d*)\)?',
+            r'[\(]?SL[\)]?[:\s\-_\.]*\(?(\d+\.?\d*)\)?',
         ]
     elif profile.sl_style == "stop_loss":
         hints["sl_patterns"] = [
-            r'STOP\s*LOSS[:\s\-]*(\d+\.?\d*)',
-            r'STOP[:\s\-]*(\d+\.?\d*)',
+            r'STOP\s*LOSS[:\s\-\.]*\(?(\d+\.?\d*)\)?',
+            r'STOP[:\s\-\.]*\(?(\d+\.?\d*)\)?',
         ]
     elif profile.sl_style == "emoji_stop":
         hints["sl_patterns"] = [

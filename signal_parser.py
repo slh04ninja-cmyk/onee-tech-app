@@ -84,7 +84,9 @@ def _extract_all_tps(text: str) -> List[float]:
 
     # Pattern 1: TP followed by number (TP1, TP2, TP10, etc.)
     # Handles optional parentheses around TP label like "(TP1): 4671.00"
-    for match in re.finditer(r'TP\s*(\d+)\s*\)?\s*[:\s\-]*(\d+\.?\d*)', text, re.IGNORECASE):
+    # Handles optional parentheses around price like "TP1: (3245)"
+    # Handles dot separator: "TP.1: 3245"
+    for match in re.finditer(r'TP[\.\s]*(\d+)\s*\)?\s*[:\s\-]*\(?(\d+\.?\d*)\)?', text, re.IGNORECASE):
         tp_num = int(match.group(1))
         tp_val = float(match.group(2))
         if 1000 <= tp_val <= 9999:  # gold price range
@@ -92,7 +94,8 @@ def _extract_all_tps(text: str) -> List[float]:
 
     # Pattern 2: TAKE PROFIT followed by number
     # Handles both "TAKE PROFIT ONE 4510" and "Take Profit 1 (TP1): 4671.00"
-    for match in re.finditer(r'TAKE\s*PROFIT\s*(\d+|ONE|TWO|THREE|FOUR|FIVE|SIX|SEVEN|EIGHT|NINE|TEN)?\s*(?:\(.*?\))?\s*[:\s\-]*(\d+\.?\d*)', text, re.IGNORECASE):
+    # Handles optional parentheses around price like "TAKE PROFIT 1 (3245)"
+    for match in re.finditer(r'TAKE\s*PROFIT\s*(\d+|ONE|TWO|THREE|FOUR|FIVE|SIX|SEVEN|EIGHT|NINE|TEN)?\s*(?:\(.*?\))?\s*[:\s\-]*\(?(\d+\.?\d*)\)?', text, re.IGNORECASE):
         word_to_num = {"ONE": 1, "TWO": 2, "THREE": 3, "FOUR": 4, "FIVE": 5,
                        "SIX": 6, "SEVEN": 7, "EIGHT": 8, "NINE": 9, "TEN": 10}
         num_str = match.group(1)
@@ -105,7 +108,7 @@ def _extract_all_tps(text: str) -> List[float]:
             tps[tp_num] = tp_val
 
     # Pattern 3: ✅ followed by TP (common in signal channels)
-    for match in re.finditer(r'✅\s*TP\s*(\d+)\s*[:\s]*(\d+\.?\d*)', text, re.IGNORECASE):
+    for match in re.finditer(r'✅\s*TP[\.\s]*(\d+)\s*[:\s]*\(?(\d+\.?\d*)\)?', text, re.IGNORECASE):
         tp_num = int(match.group(1))
         tp_val = float(match.group(2))
         if 1000 <= tp_val <= 9999:
@@ -113,8 +116,9 @@ def _extract_all_tps(text: str) -> List[float]:
 
     # Pattern 4: "TP" without number — assign sequential numbers by order of appearance
     # Only used if no numbered TPs were found (avoids conflicts with TP1/TP2/etc.)
+    # Handles dot: "TP. 3245", "TP: 3245", "TP 3245", "TP: (3245)"
     if not tps:
-        for match in re.finditer(r'\bTP\s*[:\s]*(\d+\.?\d*)', text, re.IGNORECASE):
+        for match in re.finditer(r'\bTP[\.\s]*[:\s]*\(?(\d+\.?\d*)\)?', text, re.IGNORECASE):
             tp_val = float(match.group(1))
             if 1000 <= tp_val <= 9999:
                 tp_num = len(tps) + 1
@@ -163,12 +167,12 @@ def parse_signal(text: str, timestamp: Optional[datetime] = None) -> Optional[Tr
     # Extract ALL TP levels dynamically
     tps = _extract_all_tps(text)
 
-    # Extract SL — handle "(SL):", "SL:", "SL_", "SL BREAKOUT", "Stop Loss:", etc.
-    sl = _extract_price(text, [r'[\(]?SL[\)]?[:\s\-_]*(\d+\.?\d*)',
-                                r'SL\s+BREAKOUT\s*[:\s]*(\d+\.?\d*)',
-                                r'SL\s+[A-Z]+\s*[:\s]*(\d+\.?\d*)',
-                                r'STOP\s*LOSS[:\s\-]*(\d+\.?\d*)',
-                                r'STOP[:\s\-]*(\d+\.?\d*)'])
+    # Extract SL — handle "(SL):", "SL:", "SL_", "SL_ ", "SL.", "SL BREAKOUT", "Stop Loss:", "SL: (4565)", etc.
+    sl = _extract_price(text, [r'[\(]?SL[\)]?[:\s\-_\.]*\(?(\d+\.?\d*)\)?',
+                                r'SL\s+BREAKOUT\s*[:\s\.]*\(?(\d+\.?\d*)\)?',
+                                r'SL\s+[A-Z]+\s*[:\s\.]*\(?(\d+\.?\d*)\)?',
+                                r'STOP\s*LOSS[:\s\-\.]*\(?(\d+\.?\d*)\)?',
+                                r'STOP[:\s\-\.]*\(?(\d+\.?\d*)\)?'])
 
     # Calculate confidence
     confidence = 0.3  # base for having direction + entry
