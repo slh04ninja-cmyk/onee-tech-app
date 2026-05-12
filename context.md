@@ -1,5 +1,7 @@
 # Context.md — Gold Trading Channel Analyzer
 
+> **Commande `/maj`** : mettre à jour ce fichier avec les derniers changements du projet.
+
 ## 📋 Résumé du projet
 Application Streamlit qui analyse et classe les channels Telegram de trading gold par rentabilité réelle. Backtest les signaux contre les vrais prix gold en bougies 1min pour le scalping.
 
@@ -7,9 +9,9 @@ Application Streamlit qui analyse et classe les channels Telegram de trading gol
 ```
 onee-tech-app/
 ├── app.py              # UI Streamlit (7 étapes) + responsive CSS + page détail channel
-├── signal_parser.py    # Parse signaux multi-format (superscripts, ranges, parenthèses)
+├── signal_parser.py    # Parse signaux multi-format (superscripts, ranges, parenthèses, dots)
 ├── format_detector.py  # Détection automatique du format des signaux par channel
-├── gold_prices.py      # Prix XAUUSD via Yahoo Finance API directe (chunked 1m)
+├── gold_prices.py      # Prix XAUUSD via Yahoo Finance API directe (chunked 1m) + debug
 ├── backtester.py       # Backtest vs vrais prix + format-aware parsing
 ├── scorer.py           # Score composite 0-100 + Sharpe Ratio
 ├── bot.py              # Script original
@@ -36,7 +38,7 @@ onee-tech-app/
 - `direction_style` : text (BUY/SELL), emoji (🟢🔴), arrow (⬆️⬇️)
 - `entry_style` : labeled (ENTRY:), inline (BUY 3240), at (@3240), range
 - `tp_style` : numbered (TP1/TP2), unnumbered (TP:), emoji (✅), take_profit, superscript (TP¹)
-- `sl_style` : standard (SL:), stop_loss, emoji (🛑)
+- `sl_style` : standard (SL:), stop_loss, breakout (SL BREAKOUT), emoji (🛑)
 - `pair` : XAUUSD, EURUSD, GBPUSD, BTCUSD
 - `has_superscripts` : booléen pour les chiffres Unicode
 - `signal_density` : % de messages qui sont des signaux
@@ -49,6 +51,53 @@ onee-tech-app/
 4. `analyze_channel_full()` → utilise le profil pour un parsing format-aware (si confiance > 0.3)
 
 **Extensible :** peut être enrichi avec NLP (sentence-transformers) ou LLM (API) pour les formats complexes.
+
+## 📝 Formats de signaux supportés
+
+### Formats TP (22 patterns)
+| Format | Exemple |
+|---|---|
+| `TP{n}: {prix}` | `TP1: 3245` |
+| `TP{n} {prix}` | `TP2 3250` |
+| `TP{n}-{prix}` | `TP1-3245` |
+| `TP{n} (2+ chiffres)` | `TP10: 3300` |
+| `(TP{n}): {prix}` | `(TP1): 3245` |
+| `TAKE PROFIT {n} {prix}` | `TAKE PROFIT 1 3245` |
+| `TAKE PROFIT {mot} {prix}` | `TAKE PROFIT ONE 3245` |
+| `✅ TP{n}: {prix}` | `✅ TP1: 3245` |
+| `TP: {prix}` (sans numéro) | `TP: 3245` |
+| `TP {prix}` (sans numéro) | `TP 3245` |
+| `TP¹ {prix}` (superscript) | `TP¹ 3245` |
+| `TP.³ {prix}` (superscript+point) | `TP.³ 3260` |
+| `TP.{n}: {prix}` (point) | `TP.1: 3245` |
+| `TP. {n}: {prix}` (point+espace) | `TP. 1: 3245` |
+| `TP {n}: ({prix})` (parenthèses) | `TP1: (3245)` |
+| `TAKE PROFIT {n} ({prix})` | `TAKE PROFIT 1 (3245)` |
+| Multi TP numérotés | `TP1: 3245 TP2: 3250 TP3: 3260` |
+| Minuscule | `tp1: 3245` |
+| Emoji + TP | `🎯 TP1: 3245` |
+
+### Formats SL (19 patterns)
+| Format | Exemple |
+|---|---|
+| `SL: {prix}` | `SL: 4565` |
+| `SL {prix}` | `SL 4565` |
+| `SL_{prix}` | `SL_4565` |
+| `SL_ {prix}` | `SL_ 4565` |
+| `SL-{prix}` | `SL-4565` |
+| `(SL): {prix}` | `(SL): 4565` |
+| `SL. {prix}` (point) | `SL. 4565` |
+| `SL.{prix}` (point) | `SL.4565` |
+| `SL BREAKOUT {prix}` | `SL BREAKOUT 4565` |
+| `STOP LOSS {prix}` | `STOP LOSS 4565` |
+| `STOP LOSS. {prix}` | `STOP LOSS. 4565` |
+| `STOP LOSS: ({prix})` (parenthèses) | `STOP LOSS: (4565)` |
+| `SL: ({prix})` (parenthèses) | `SL: (4565)` |
+| `SL ({prix})` | `SL (4565)` |
+| `Stop Loss (SL): {prix}` | `Stop Loss (SL): 4565` |
+| `🛑 SL {prix}` | `🛑 SL 4565` |
+| `STOP: {prix}` | `STOP: 4565` |
+| Minuscule | `sl: 4565` |
 
 ## 📊 Données prix gold — Stratégie de chunking
 Yahoo Finance limite les données 1min à 7 jours par requête. Le code utilise le chunking :
@@ -65,6 +114,16 @@ L'ancienne approche `yfinance` est remplacée par des appels directs à l'API v8
 - Le premium futures-spot est calculé au moment du signal : `premium = GC=F_open - entry_spot`
 - Les TP/SL sont ajustés par ce premium avant comparaison avec les bougies GC=F
 - **Canaux de trading** : les signaux utilisent des prix spot (comme sur MT5 Exness), le backtester les compare aux prix futures via l'ajustement premium
+
+## 🔍 Debug — Signaux OPEN avec TP
+`check_tp_sl_hit()` retourne des champs debug pour diagnostiquer les signaux restés OPEN :
+- `debug_candles_checked` : nombre de bougies examinées
+- `debug_price_range` : `(lowest_low, highest_high)` vu pendant le backtest
+- `debug_adjusted_tps` : valeurs TP ajustées (après correction premium)
+- `debug_adjusted_sl` : valeur SL ajustée
+- `premium` : premium futures-spot appliqué
+
+Ces infos s'affichent dans l'UI quand un signal a le résultat "OPEN".
 
 ## 🔑 Identifiants Telegram
 - API_ID / API_HASH : chargés depuis le fichier `.env` (racine du projet)
@@ -85,8 +144,10 @@ L'ancienne approche `yfinance` est remplacée par des appels directs à l'API v8
 - **Score Composite** : 0-100 (35% WR, 20% R:R, 15% Sharpe, 10% volume, 20% consistance)
 
 ## ✅ Fonctionnalités récentes
-- **Format Detector** : détection automatique du format des signaux par channel (direction style, entry style, TP style, SL style, paire, superscripts). Retourne un `FormatProfile` avec score de confiance et parsing hints. Affiché dans l'UI lors de la sélection des channels.
-- **Crash protection** : les steps `detail` et `results` sont wrappés dans des try/except pour éviter le crash "Received no response from server" lors du rerun Streamlit (ex: minimize/reopen Chrome). Bouton de réinitialisation en cas d'erreur.
+- **Crash protection complète** : chaque étape (config, code, password, scanning, select, analyzing, detail, results) est wrappée dans try/except avec UI de récupération. Flag `_processing` empêche le re-run pendant les opérations longues (scan, analyse). `run_telethon` gère les timeouts et erreurs de connexion WebSocket.
+- **Formats TP/SL étendus** : support pour points (`TP.1: 3245`), parenthèses autour du prix (`SL: (4565)`), SL BREAKOUT, Stop Loss compound (`Stop Loss (SL): 4565`). 22 formats TP + 19 formats SL.
+- **Debug OPEN signals** : champs debug dans `check_tp_sl_hit()` (candles_checked, price_range, adjusted_tps, premium) affichés dans l'UI pour les signaux restés OPEN.
+- **Format Detector** : détection automatique du format des signaux par channel (direction style, entry style, TP style, SL style, paire, superscripts). Retourne un `FormatProfile` avec score de confiance et parsing hints.
 - **Signaux sans TP ignorés** : les signaux incomplets (pas de TP) sont filtrés avant le backtest
 - **Sharpe Ratio** : métrique de rendement ajusté au risque ajoutée au scoring
 - **Config .env** : API_ID/API_HASH chargés depuis .env, plus besoin de les entrer à chaque test
@@ -159,70 +220,64 @@ L'ancienne approche `yfinance` est remplacée par des appels directs à l'API v8
 **Fix dans `signal_parser.py` :** `[\)]` → `[\)]?` (parenthèse fermante optionnelle)
 
 ### 10. Ordre SL/TP inversé dans le backtester (RÉSOLU)
-**Problème :** Dans `check_tp_sl_hit()`, le SL était vérifié **avant** les TP dans chaque bougie. Si dans la même minute le prix touchait le TP puis le SL, le résultat était "SL" au lieu du TP. De plus, le code vérifiait tous les TP dans chaque bougie sans s'arrêter, ce qui marquait TP1 à TP7 comme touchés simultanément.
+**Problème :** Dans `check_tp_sl_hit()`, le SL était vérifié **avant** les TP dans chaque bougie. Si dans la même minute le prix touchait le TP puis le SL, le résultat était "SL" au lieu du TP.
 
 **Fix dans `gold_prices.py` :**
-- TP vérifié **en premier** dans chaque bougie (stop au premier TP touché)
+- TP vérifié **en premier** dans chaque bougie
 - SL vérifié **seulement** si aucun TP n'a été touché avant ce point
-- Logique : une fois un TP touché, le trade est gagnant — pas de retour arrière vers le SL
 
 ### 11. TP sans numéro non parsé (RÉSOLU)
-**Problème :** Le channel écrit `TP 4535` (sans numéro), mais le regex `TP\s*(\d+)\s*[:\s]*(\d+\.?\d*)` exigeait un chiffre après "TP" (TP**1**, TP**2**, etc.). Seul le pattern fallback "TP:" matchait, et ne captait qu'**un seul** TP → TP2-TP5 étaient ignorés.
+**Problème :** Le channel écrit `TP 4535` (sans numéro), mais le regex exigeait un chiffre après "TP".
 
-**Impact :** Le backtester ne vérifiait que TP1. Si TP2 était touché 16 min plus tard, il était ignoré → PnL sous-estimé.
-
-**Fix dans `signal_parser.py` :**
-- Ajout d'un Pattern 4 qui matche `TP` sans numéro (`\bTP\s*[:\s]*(\d+\.?\d*)`)
-- Attribution séquentielle des numéros par ordre d'apparition (TP1, TP2, TP3...)
-- Pattern 4 activé **seulement** si aucun TP numéroté (TP1/TP2/...) n'a été trouvé
+**Fix dans `signal_parser.py` :** Ajout du Pattern 4 (`\bTP\s*[:\s]*(\d+\.?\d*)`) avec attribution séquentielle.
 
 ### 12. Plage de prix gold trop restrictive (RÉSOLU)
-**Problème :** La validation `1000 ≤ price ≤ 5000` rejetait les prix au-dessus de $5000. L'or étant à ~$4730 en mai 2026 et en hausse, cette limite allait casser prochainement.
+**Problème :** La validation `1000 ≤ price ≤ 5000` rejetait les prix au-dessus de $5000.
 
-**Fix dans `signal_parser.py` :** Plage élargie à `1000 ≤ price ≤ 9999` (entry, TP, standalone price).
+**Fix :** Plage élargie à `1000 ≤ price ≤ 9999`.
 
 ### 13. TPs traversés en une bougie non marqués (RÉSOLU)
-**Problème :** Pour un SELL avec TPs [4535, 4530, 4525], si le prix descendait à 4528 en une bougie, seul TP1 (4535) était marqué. TP2 (4530) était ignoré même si le prix l'avait traversé. Le code utilisait `break` après le premier TP touché dans une bougie.
+**Problème :** Pour un SELL avec TPs [4535, 4530, 4525], si le prix descendait à 4528 en une bougie, seul TP1 était marqué.
 
-**Fix dans `gold_prices.py` :**
-- Suppression du `break` après détection d'un TP dans une bougie
-- Tous les TPs dont le niveau est traversé sont marqués (pas juste le premier)
-- Le SL est vérifié **seulement** si aucun TP n'a été touché au préalable
+**Fix :** Suppression du `break` — tous les TPs traversés sont marqués.
 
 ### 14. R:R ratio à 0 quand aucune perte (RÉSOLU)
-**Problème :** Si tous les trades sont gagnants (aucun SL touché), `avg_loss = 0` → `rr_ratio = 0`. Le score composite était pénalisé pour un bon résultat.
-
-**Fix dans `scorer.py` :** Quand `avg_loss == 0` et `avg_win > 0` → `rr_ratio = MAX_REALISTIC_RR` (50).
+**Fix :** Quand `avg_loss == 0` et `avg_win > 0` → `rr_ratio = MAX_REALISTIC_RR` (50).
 
 ### 15. Superscripts Unicode non parsés (RÉSOLU)
-**Problème :** Les TPs écrits en chiffres Unicode superscripts (`TP¹ 4716`, `TP.² 4712`) n'étaient pas parsés — `\d+` ne matche que les chiffres ASCII.
-
-**Fix dans `signal_parser.py` :** Ajout de `_normalize_superscripts()` qui convertit `¹²³⁴⁵⁶⁷⁸⁹⁰` en `1234567890` avant le parsing.
+**Fix :** `_normalize_superscripts()` convertit `¹²³⁴⁵⁶⁷⁸⁹⁰` en `1234567890`.
 
 ### 16. Entry ranges avec `/` non parsés (RÉSOLU)
-**Problème :** `SELL 4720/4723` — seul `4720` était capturé, le range était perdu.
-
-**Fix dans `signal_parser.py` :** Les patterns BUY/SELL/ENTRY capturent maintenant les ranges (`4720/4723` → midpoint `4721.5`). `_extract_price()` split sur `/`, `-`, `–`.
+**Fix :** `_extract_price()` split sur `/`, `-`, `–` → midpoint.
 
 ### 17. Parenthèses dans TP patterns (RÉSOLU)
-**Problème :** `Take Profit 1 (TP1): 4671.00` — le `)` entre `TP1` et `:` cassait le regex.
-
-**Fix dans `signal_parser.py` :** Pattern 1 (`TP\s*(\d+)\s*\)?\s*[:\s\-]*`) gère le `)` optionnel. Pattern 2 (`(?:\(.*?\))?`) saute les parenthèles.
+**Fix :** Pattern gère le `)` optionnel après le label TP.
 
 ### 18. set_page_config doit être première commande (RÉSOLU)
-**Problème :** `st.markdown()` (CSS responsive) était appelé avant `st.set_page_config()` → `StreamlitSetPageConfigMustBeFirstCommandError`.
-
-**Fix dans `app.py` :** Déplacer le CSS après `set_page_config()`.
+**Fix :** CSS déplacé après `set_page_config()`.
 
 ### 19. Arrow type error sur colonnes TP/SL (RÉSOLU)
-**Problème :** Les colonnes TP mélangaient `float` (valeurs) et `str` (`"—"` pour les TPs manquants) → `ArrowTypeError` / `ArrowInvalid` à la sérialisation.
-
-**Fix dans `app.py` :** Conversion de toutes les valeurs TP et SL en `str()` avant insertion dans le DataFrame.
+**Fix :** Conversion de toutes les valeurs TP/SL en `str()`.
 
 ### 20. inotify instance limit sur Streamlit Cloud (RÉSOLU)
-**Problème :** `OSError: [Errno 24] inotify instance limit reached` — le file watcher de Streamlit atteignait la limite système sur le cloud.
+**Fix :** `fileWatcherType = "poll"` dans `.streamlit/config.toml`.
 
-**Fix dans `.streamlit/config.toml` :** `fileWatcherType = "poll"` pour utiliser le polling au lieu d'inotify.
+### 21. Crash Chrome minimize/restore (RÉSOLU)
+**Problème :** Quand Chrome est minimisé puis rouvert, Streamlit perd la connexion WebSocket et relance le script. Si une opération Telethon (scan, analyse) était en cours, le script crashait.
+
+**Fix dans `app.py` :**
+- Flag `_processing` dans `session_state` empêche le re-run pendant les opérations longues
+- Chaque étape wrappée dans `try/except` avec `show_crash_recovery()` (bouton réinitialisation)
+- `run_telethon` amélioré : gère `TimeoutError` et erreurs de connexion proprement, ferme l'event loop même si `shutdown_asyncgens()` échoue
+
+### 22. SL non détecté — formats cassés (RÉSOLU)
+**Problème :** Les formats `SL_4565`, `SL BREAKOUT 4565`, `SL. 4565`, `SL.4565`, `STOP LOSS. 4565` n'étaient pas parsés.
+
+**Fix dans `signal_parser.py` :**
+- Pattern SL principal : `[\(]?SL[\)]?[:\s\-_\.]*\(?(\d+\.?\d*)\)?`
+- Ajout pattern `SL\s+BREAKOUT` et `SL\s+[A-Z]+\s*`
+- Ajout support `.` (point) comme séparateur dans tous les patterns SL/TP
+- Ajout support parenthèses autour du prix : `SL: (4565)`, `TP1: (3245)`
 
 ## ⚠️ Bugs non résolus
 
@@ -231,12 +286,7 @@ L'ancienne approche `yfinance` est remplacée par des appels directs à l'API v8
 
 **Cause :** La formule `(entry - sl) * 10` donne un nombre positif quand `entry > sl`. Le code ne vérifie pas que le SL est du bon côté par rapport au entry.
 
-**Fix en attente :** Utiliser `-abs(entry - sl) * 10` pour forcer le PnL du SL à être toujours négatif. Code prêt mais retiré temporairement pour valider le format detector d'abord.
-
-### 2. Erreur pendant le scan Telegram (RÉSOLU)
-**Problème :** Après connexion Telegram (entrée du code de vérification), l'étape de scan s'arrêtait avec "Erreur pendant le scan" sans détail.
-
-**Statut :** Résolu — le scan fonctionne maintenant correctement.
+**Fix en attente :** Utiliser `-abs(entry - sl) * 10` pour forcer le PnL du SL à être toujours négatif.
 
 ## ⚠️ Sécurité
 - API_ID/API_HASH dans `.env` (gitignore) — jamais dans le code
