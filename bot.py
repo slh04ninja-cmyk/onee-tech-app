@@ -5,11 +5,17 @@ Uses a user account (Telethon) to fetch all channels/supergroups you've joined.
 
 import asyncio
 import os
+from dotenv import load_dotenv
 from telethon import TelegramClient
 from telethon.tl.types import Channel, Chat
 
+load_dotenv()
+
 # === CONFIG ===
-API_ID = int(os.environ.get("API_ID", 0))
+try:
+    API_ID = int(os.environ.get("API_ID", 0))
+except (ValueError, TypeError):
+    API_ID = 0
 API_HASH = os.environ.get("API_HASH", "")
 SESSION_NAME = os.environ.get("SESSION_NAME", "channel_lister")
 

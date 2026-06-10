@@ -5,7 +5,6 @@ Supporte un nombre dynamique de TP (TP1, TP2, ..., TPn).
 
 import re
 import math
-import pandas as pd
 from typing import List, Dict
 from dataclasses import dataclass
 
@@ -61,7 +60,7 @@ def score_channels(channel_results: Dict[int, dict]) -> List[ChannelScore]:
             continue
 
         # Only count completed signals (any TP or SL), exclude OPEN
-        completed = [s for s in signals if s.get("result", "") in ("SL") or _is_tp_result(s.get("result", ""))]
+        completed = [s for s in signals if s.get("result", "") == "SL" or _is_tp_result(s.get("result", ""))]
         wins = sum(1 for s in completed if _is_tp_result(s.get("result", "")))
         losses = sum(1 for s in completed if s.get("result") == "SL")
         opens = sum(1 for s in signals if s.get("result") == "OPEN")
@@ -120,7 +119,7 @@ def score_channels(channel_results: Dict[int, dict]) -> List[ChannelScore]:
         # Composite score (0-100)
         # Weighting: win_rate (35%), R:R (20%), Sharpe (15%), volume (10%), consistency (20%)
         volume_bonus = min(total / 10, 1) * 10  # max 10 pts for 10+ signals
-        consistency = 100 - (abs(best - abs(worst)) / max(abs(best), 1) * 100) if best != 0 else 50
+        consistency = max(0, 100 - (abs(best - abs(worst)) / max(abs(best), 1) * 100)) if best != 0 else 50
         consistency_bonus = consistency * 0.2
         sharpe_bonus = min(max(sharpe, 0), 3) * 5  # 0-15 pts, cap at Sharpe 3
 

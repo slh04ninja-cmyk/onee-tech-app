@@ -540,10 +540,6 @@ elif st.session_state.step == "select":
                             f"Paire: {fp.get('pair', 'XAUUSD')}"
                         )
 
-            df = pd.DataFrame(trading).rename(columns={
-                "id": "ID", "title": "Channel", "signal_count": "Signaux détectés",
-                "format": "Format", "username": "Username"
-            })
             selected = st.multiselect(
                 "Sélectionne les channels à analyser en profondeur :",
                 options=[ch["title"] for ch in trading],
@@ -578,7 +574,10 @@ elif st.session_state.step == "select":
                 if st.button("🔌 Se déconnecter"):
                     for sess_file in ["gold_session.session", "gold_session.session-journal"]:
                         if os.path.exists(sess_file):
-                            os.remove(sess_file)
+                            try:
+                                os.remove(sess_file)
+                            except OSError:
+                                pass
                     for key in list(st.session_state.keys()):
                         del st.session_state[key]
                     st.rerun()
@@ -590,11 +589,25 @@ elif st.session_state.step == "select":
 elif st.session_state.step == "analyzing":
     # Anti-re-run guard
     if st.session_state._processing:
-        st.info("⏳ Analyse en cours... Merci de patienter.")
-        st.stop()
+        # Auto-reset after 10 minutes to prevent permanent lock
+        import time
+        _proc_start = st.session_state.get("_processing_start", 0)
+        if _proc_start and (time.time() - _proc_start) > 600:
+            st.session_state._processing = False
+            st.warning("⏱️ L'analyse a pris trop de temps — réinitialisation automatique.")
+            st.rerun()
+        else:
+            st.info("⏳ Analyse en cours... Merci de patienter.")
+            st.info("💡 Si Chrome se bloque, attends 10 min ou réinitialise ci-dessous.")
+            if st.button("🔄 Forcer la réinitialisation", key="force_reset_proc"):
+                st.session_state._processing = False
+                st.rerun()
+            st.stop()
 
     try:
+        import time
         st.session_state._processing = True
+        st.session_state._processing_start = time.time()
         st.subheader("🔬 Analyse en cours...")
         days = analysis_days
 
@@ -785,15 +798,17 @@ elif st.session_state.step == "detail":
                     except (ValueError, TypeError):
                         continue
                 if ts and sig.get("result") in ("TP1", "TP2", "TP3", "TP4", "TP5", "TP6", "SL"):
+                    _day_fr = {"Monday": "Lundi", "Tuesday": "Mardi", "Wednesday": "Mercredi",
+                               "Thursday": "Jeudi", "Friday": "Vendredi", "Saturday": "Samedi", "Sunday": "Dimanche"}
                     heatmap_data.append({
-                        "Jour": ts.strftime("%A"),
+                        "Jour": _day_fr.get(ts.strftime("%A"), ts.strftime("%A")),
                         "Heure": ts.hour,
                         "PnL": sig.get("pnl_pips", 0)
                     })
 
             if heatmap_data:
                 hm_df = pd.DataFrame(heatmap_data)
-                day_order = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+                day_order = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"]
                 hm_pivot = hm_df.groupby(["Jour", "Heure"])["PnL"].mean().reset_index()
                 hm_pivot["Jour"] = pd.Categorical(hm_pivot["Jour"], categories=day_order, ordered=True)
                 hm_pivot = hm_pivot.pivot(index="Jour", columns="Heure", values="PnL").fillna(0)
@@ -854,153 +869,156 @@ elif st.session_state.step == "results":
         else:
             st.subheader("🏆 Classement des Channels")
 
-        # Top cards — responsive: 4 cols on desktop, 2 on tablet, 1 on mobile
-        num_cards = min(len(results), 4)
-        cols = st.columns(num_cards)
-        for i, score in enumerate(results[:num_cards]):
-            with cols[i]:
-                medal = ["🥇", "🥈", "🥉", "4️⃣"][min(i, 3)]
-                st.metric(
-                    f"{medal} {score.channel_name[:20]}",
-                    f"{score.score}/100",
-                    f"WR: {score.win_rate}%"
-                )
-        st.divider()
+            # Top cards — responsive: 4 cols on desktop, 2 on tablet, 1 on mobile
+            num_cards = min(len(results), 4)
+            cols = st.columns(num_cards)
+            for i, score in enumerate(results[:num_cards]):
+                with cols[i]:
+                    medal = ["🥇", "🥈", "🥉", "4️⃣"][min(i, 3)]
+                    st.metric(
+                        f"{medal} {score.channel_name[:20]}",
+                        f"{score.score}/100",
+                        f"WR: {score.win_rate}%"
+                    )
+            st.divider()
 
-        tab1, tab2, tab3 = st.tabs(["📊 Classement", "📈 Détails", "📥 Export"])
+            tab1, tab2, tab3 = st.tabs(["📊 Classement", "📈 Détails", "📥 Export"])
 
-        with tab1:
-            data = [{
-                "ID": s.channel_id,
-                "Channel": s.channel_name,
-                "Score": s.score,
-                "Win Rate": f"{s.win_rate}%",
-                "Signaux": s.total_signals,
-                "Wins": s.wins,
-                "Losses": s.losses,
-                "Open": s.open_signals,
-                "R:R": s.risk_reward_ratio,
-                "Sharpe": s.sharpe_ratio,
-                "PnL Total (pips)": f"{s.total_pnl_pips:+.0f}",
-                "PnL Moyen (pips)": f"{s.avg_pnl_pips:+.0f}",
-                "Meilleur": f"{s.best_signal_pips:+.0f}",
-                "Pire": f"{s.worst_signal_pips:+.0f}",
-                "Temps moyen": f"{s.avg_time_to_result_hours:.1f}h"
-            } for s in results]
-            st.dataframe(pd.DataFrame(data), use_container_width=True, hide_index=True)
+            with tab1:
+                data = [{
+                    "ID": s.channel_id,
+                    "Channel": s.channel_name,
+                    "Score": s.score,
+                    "Win Rate": f"{s.win_rate}%",
+                    "Signaux": s.total_signals,
+                    "Wins": s.wins,
+                    "Losses": s.losses,
+                    "Open": s.open_signals,
+                    "R:R": s.risk_reward_ratio,
+                    "Sharpe": s.sharpe_ratio,
+                    "PnL Total (pips)": f"{s.total_pnl_pips:+.0f}",
+                    "PnL Moyen (pips)": f"{s.avg_pnl_pips:+.0f}",
+                    "Meilleur": f"{s.best_signal_pips:+.0f}",
+                    "Pire": f"{s.worst_signal_pips:+.0f}",
+                    "Temps moyen": f"{s.avg_time_to_result_hours:.1f}h"
+                } for s in results]
+                st.dataframe(pd.DataFrame(data), use_container_width=True, hide_index=True)
 
-            if len(results) > 1:
-                chart_data = pd.DataFrame([{
-                    "Channel": s.channel_name, "Score": s.score,
-                    "Win Rate": s.win_rate, "PnL Total": s.total_pnl_pips
-                } for s in results])
-                fig = px.bar(chart_data, x="Channel", y="Score",
-                             color="Win Rate", color_continuous_scale="RdYlGn",
-                             title="Score par Channel")
-                st.plotly_chart(fig, use_container_width=True)
+                if len(results) > 1:
+                    chart_data = pd.DataFrame([{
+                        "Channel": s.channel_name, "Score": s.score,
+                        "Win Rate": s.win_rate, "PnL Total": s.total_pnl_pips
+                    } for s in results])
+                    fig = px.bar(chart_data, x="Channel", y="Score",
+                                 color="Win Rate", color_continuous_scale="RdYlGn",
+                                 title="Score par Channel")
+                    st.plotly_chart(fig, use_container_width=True)
 
-        with tab2:
-            for idx, s in enumerate(results):
-                medal = "🥇" if idx == 0 else "📊"
-                with st.expander(f"{medal} {s.channel_name} — {s.score}/100"):
-                    st.caption(f"Channel ID: `{s.channel_id}`")
-                    c1, c2, c3, c4 = st.columns(4)
-                    c1.metric("Win Rate", f"{s.win_rate}%")
-                    c2.metric("Signaux", s.total_signals)
-                    c3.metric("PnL Total", f"{s.total_pnl_pips:+.0f} pips")
-                    c4.metric("R:R", s.risk_reward_ratio)
-                    st.metric("Sharpe Ratio", s.sharpe_ratio)
+            with tab2:
+                for idx, s in enumerate(results):
+                    medal = "🥇" if idx == 0 else "📊"
+                    with st.expander(f"{medal} {s.channel_name} — {s.score}/100"):
+                        st.caption(f"Channel ID: `{s.channel_id}`")
+                        c1, c2, c3, c4 = st.columns(4)
+                        c1.metric("Win Rate", f"{s.win_rate}%")
+                        c2.metric("Signaux", s.total_signals)
+                        c3.metric("PnL Total", f"{s.total_pnl_pips:+.0f} pips")
+                        c4.metric("R:R", s.risk_reward_ratio)
+                        st.metric("Sharpe Ratio", s.sharpe_ratio)
 
-                    # Mini PnL preview
-                    if s.signals:
-                        pnl_df = build_pnl_curve(s.signals)
-                        if not pnl_df.empty and len(pnl_df) > 1:
-                            fig_mini = go.Figure()
-                            fig_mini.add_trace(go.Scatter(
-                                y=pnl_df["Cumulé"], mode="lines",
-                                line=dict(color="#1976D2", width=1.5),
-                                fill="tozeroy", fillcolor="rgba(25, 118, 210, 0.08)",
-                                hovertemplate="Signal #%{x}<br>PnL: %{y:+.1f}<extra></extra>"
-                            ))
-                            fig_mini.update_layout(
-                                height=150, margin=dict(l=0, r=0, t=5, b=0),
-                                xaxis_title="", yaxis_title="",
-                                showlegend=False
-                            )
-                            st.plotly_chart(fig_mini, use_container_width=True)
+                        # Mini PnL preview
+                        if s.signals:
+                            pnl_df = build_pnl_curve(s.signals)
+                            if not pnl_df.empty and len(pnl_df) > 1:
+                                fig_mini = go.Figure()
+                                fig_mini.add_trace(go.Scatter(
+                                    y=pnl_df["Cumulé"], mode="lines",
+                                    line=dict(color="#1976D2", width=1.5),
+                                    fill="tozeroy", fillcolor="rgba(25, 118, 210, 0.08)",
+                                    hovertemplate="Signal #%{x}<br>PnL: %{y:+.1f}<extra></extra>"
+                                ))
+                                fig_mini.update_layout(
+                                    height=150, margin=dict(l=0, r=0, t=5, b=0),
+                                    xaxis_title="", yaxis_title="",
+                                    showlegend=False
+                                )
+                                st.plotly_chart(fig_mini, use_container_width=True)
 
-                    # Detail button
-                    if st.button(f"🔍 Voir le détail complet", key=f"detail_{s.channel_id}"):
-                        st.session_state.detail_channel = s.channel_id
-                        st.session_state.step = "detail"
-                        st.rerun()
+                        # Detail button
+                        if st.button(f"🔍 Voir le détail complet", key=f"detail_{s.channel_id}"):
+                            st.session_state.detail_channel = s.channel_id
+                            st.session_state.step = "detail"
+                            st.rerun()
 
-                    if s.signals:
-                        max_tps = max((len(sig.get("tps", [])) for sig in s.signals), default=0)
-                        sig_data = []
-                        for sig in s.signals:
-                            row = {
-                                "Date": sig.get("timestamp", "N/A"),
-                                "Direction": sig.get("direction", "?"),
-                                "Entry": sig.get("entry", 0),
-                            }
-                            tps = sig.get("tps", [])
-                            for i in range(max_tps):
-                                row[f"TP{i+1}"] = str(tps[i]) if i < len(tps) else "—"
-                            row["SL"] = str(sig.get("sl", "—")) if sig.get("sl") is not None else "—"
-                            row["Résultat"] = sig.get("result", "?")
-                            row["PnL (pips)"] = f"{sig.get('pnl_pips', 0):+.0f}"
-                            row["Confiance"] = f"{sig.get('confidence', 0):.0%}"
-                            # Debug info for OPEN signals
-                            if sig.get("result") == "OPEN":
-                                row["Bougies"] = sig.get("debug_candles_checked", "?")
-                                row["Prix Range"] = f"{sig.get('debug_price_range', ('?','?'))[0]}–{sig.get('debug_price_range', ('?','?'))[1]}"
-                                row["Premium"] = sig.get("premium", "?")
-                            sig_data.append(row)
-                        st.dataframe(pd.DataFrame(sig_data),
-                                     use_container_width=True, hide_index=True)
+                        if s.signals:
+                            max_tps = max((len(sig.get("tps", [])) for sig in s.signals), default=0)
+                            sig_data = []
+                            for sig in s.signals:
+                                row = {
+                                    "Date": sig.get("timestamp", "N/A"),
+                                    "Direction": sig.get("direction", "?"),
+                                    "Entry": sig.get("entry", 0),
+                                }
+                                tps = sig.get("tps", [])
+                                for i in range(max_tps):
+                                    row[f"TP{i+1}"] = str(tps[i]) if i < len(tps) else "—"
+                                row["SL"] = str(sig.get("sl", "—")) if sig.get("sl") is not None else "—"
+                                row["Résultat"] = sig.get("result", "?")
+                                row["PnL (pips)"] = f"{sig.get('pnl_pips', 0):+.0f}"
+                                row["Confiance"] = f"{sig.get('confidence', 0):.0%}"
+                                if sig.get("result") == "OPEN":
+                                    row["Bougies"] = sig.get("debug_candles_checked", "?")
+                                    _dpr = sig.get("debug_price_range", ("?", "?"))
+                                    row["Prix Range"] = f"{_dpr[0]}–{_dpr[1]}" if len(_dpr) >= 2 else "?"
+                                    row["Premium"] = sig.get("premium", "?")
+                                sig_data.append(row)
+                            st.dataframe(pd.DataFrame(sig_data),
+                                         use_container_width=True, hide_index=True)
 
-        with tab3:
-            st.subheader("📥 Export des résultats")
-            buffer = BytesIO()
-            with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
-                pd.DataFrame([{
-                    "Channel ID": s.channel_id,
-                    "Channel": s.channel_name, "Score": s.score,
-                    "Win Rate": s.win_rate, "Total Signals": s.total_signals,
-                    "Wins": s.wins, "Losses": s.losses,
-                    "R:R Ratio": s.risk_reward_ratio,
-                    "Sharpe Ratio": s.sharpe_ratio,
-                    "Total PnL (pips)": s.total_pnl_pips,
-                    "Avg PnL (pips)": s.avg_pnl_pips
-                } for s in results]).to_excel(writer, index=False, sheet_name="Résumé")
-                all_sigs = [{"Channel": s.channel_name, **sig}
-                            for s in results for sig in (s.signals or [])]
-                if all_sigs:
-                    pd.DataFrame(all_sigs).to_excel(writer, index=False, sheet_name="Signaux")
+            with tab3:
+                st.subheader("📥 Export des résultats")
+                buffer = BytesIO()
+                with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
+                    pd.DataFrame([{
+                        "Channel ID": s.channel_id,
+                        "Channel": s.channel_name, "Score": s.score,
+                        "Win Rate": s.win_rate, "Total Signals": s.total_signals,
+                        "Wins": s.wins, "Losses": s.losses,
+                        "R:R Ratio": s.risk_reward_ratio,
+                        "Sharpe Ratio": s.sharpe_ratio,
+                        "Total PnL (pips)": s.total_pnl_pips,
+                        "Avg PnL (pips)": s.avg_pnl_pips
+                    } for s in results]).to_excel(writer, index=False, sheet_name="Résumé")
+                    all_sigs = [{"Channel": s.channel_name, **sig}
+                                for s in results for sig in (s.signals or [])]
+                    if all_sigs:
+                        pd.DataFrame(all_sigs).to_excel(writer, index=False, sheet_name="Signaux")
 
-            st.download_button("📥 Télécharger Excel (XLSX)", buffer.getvalue(),
-                               "gold_channel_analysis.xlsx",
-                               "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-            report = format_score_report(results)
-            st.download_button("📄 Télécharger le rapport (TXT)", report,
-                               "gold_channel_report.txt", "text/plain")
+                st.download_button("📥 Télécharger Excel (XLSX)", buffer.getvalue(),
+                                   "gold_channel_analysis.xlsx",
+                                   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+                report = format_score_report(results)
+                st.download_button("📄 Télécharger le rapport (TXT)", report,
+                                   "gold_channel_report.txt", "text/plain")
 
-        st.divider()
-        col1, col2 = st.columns(2)
-        with col1:
-            if st.button("🔄 Nouvelle analyse"):
-                st.session_state.step = "select"
-                st.session_state.analysis_results = None
-                st.rerun()
-        with col2:
-            if st.button("🔌 Se déconnecter"):
-                for sess_file in ["gold_session.session", "gold_session.session-journal"]:
-                    if os.path.exists(sess_file):
-                        os.remove(sess_file)
-                for key in list(st.session_state.keys()):
-                    del st.session_state[key]
-                st.rerun()
+            st.divider()
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button("🔄 Nouvelle analyse"):
+                    st.session_state.step = "select"
+                    st.session_state.analysis_results = None
+                    st.rerun()
+            with col2:
+                if st.button("🔌 Se déconnecter"):
+                    for sess_file in ["gold_session.session", "gold_session.session-journal"]:
+                        if os.path.exists(sess_file):
+                            try:
+                                os.remove(sess_file)
+                            except OSError:
+                                pass
+                    for key in list(st.session_state.keys()):
+                        del st.session_state[key]
+                    st.rerun()
 
     except Exception as e:
         st.error(f"❌ Erreur lors de l'affichage des résultats : {e}")

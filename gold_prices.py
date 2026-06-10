@@ -11,7 +11,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional, List
 
 YAHOO_API_URL = "https://query1.finance.yahoo.com/v8/finance/chart/{ticker}"
-HEADERS = {"User-Agent": "Mozilla/5.0"}
+HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"}
 
 # Yahoo Finance limits 1m data to 7 days per request
 CHUNK_DAYS_1M = 7
@@ -26,7 +26,10 @@ def _fetch_chunk(ticker: str, start_ts: int, end_ts: int, interval: str) -> pd.D
     if resp.status_code != 200:
         return pd.DataFrame()
 
-    data = resp.json()
+    try:
+        data = resp.json()
+    except (ValueError, requests.exceptions.JSONDecodeError):
+        return pd.DataFrame()
     result = data.get("chart", {}).get("result", [None])[0]
     if not result:
         return pd.DataFrame()
