@@ -156,31 +156,215 @@ st.set_page_config(
 # === Responsive CSS (must be after set_page_config) ===
 st.markdown("""
 <style>
-/* Mobile-first responsive tweaks */
+/* ===== ANIMATIONS ===== */
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+}
+@keyframes slideIn {
+    from { transform: translateY(20px); opacity: 0; }
+    to { transform: translateY(0); opacity: 1; }
+}
+@keyframes shimmer {
+    0% { background-position: -200% 0; }
+    100% { background-position: 200% 0; }
+}
+@keyframes glow {
+    0%, 100% { box-shadow: 0 0 5px rgba(255, 215, 0, 0.3); }
+    50% { box-shadow: 0 0 20px rgba(255, 215, 0, 0.6); }
+}
+@keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+@keyframes bounce {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-8px); }
+}
+@keyframes fadeInUp {
+    from { opacity: 0; transform: translateY(30px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+@keyframes progressPulse {
+    0% { box-shadow: 0 0 0 0 rgba(25, 118, 210, 0.4); }
+    70% { box-shadow: 0 0 0 10px rgba(25, 118, 210, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(25, 118, 210, 0); }
+}
+
+/* ===== SCAN ANIMATIONS ===== */
+.scan-card {
+    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+    border: 1px solid rgba(255, 215, 0, 0.2);
+    border-radius: 16px;
+    padding: 24px;
+    margin: 12px 0;
+    animation: fadeInUp 0.5s ease-out;
+    transition: all 0.3s ease;
+}
+.scan-card:hover {
+    border-color: rgba(255, 215, 0, 0.5);
+    transform: translateY(-2px);
+}
+.scan-step {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 16px;
+    border-radius: 10px;
+    margin: 6px 0;
+    transition: all 0.3s ease;
+}
+.scan-step.active {
+    background: rgba(25, 118, 210, 0.15);
+    border-left: 3px solid #1976D2;
+    animation: progressPulse 1.5s infinite;
+}
+.scan-step.done {
+    background: rgba(76, 175, 80, 0.1);
+    border-left: 3px solid #4CAF50;
+}
+.scan-step.pending {
+    background: rgba(255, 255, 255, 0.03);
+    border-left: 3px solid rgba(255, 255, 255, 0.1);
+    opacity: 0.5;
+}
+.scan-step-icon {
+    font-size: 1.3rem;
+    min-width: 30px;
+    text-align: center;
+}
+.scan-step.active .scan-step-icon {
+    animation: bounce 1s infinite;
+}
+.scan-step.done .scan-step-icon {
+    animation: none;
+}
+.scan-channel-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 14px;
+    border-radius: 8px;
+    margin: 4px 0;
+    background: rgba(76, 175, 80, 0.08);
+    border-left: 3px solid #4CAF50;
+    animation: slideIn 0.3s ease-out;
+}
+.scan-channel-item.scanning {
+    background: rgba(25, 118, 210, 0.1);
+    border-left: 3px solid #1976D2;
+    animation: slideIn 0.3s ease-out, pulse 1.5s infinite;
+}
+
+/* ===== ANALYSIS ANIMATIONS ===== */
+.analysis-phase {
+    background: linear-gradient(135deg, #0d1117 0%, #161b22 100%);
+    border: 1px solid rgba(48, 54, 61, 0.8);
+    border-radius: 16px;
+    padding: 20px;
+    margin: 10px 0;
+    animation: fadeInUp 0.4s ease-out;
+}
+.analysis-phase.active {
+    border-color: rgba(25, 118, 210, 0.5);
+    animation: fadeInUp 0.4s ease-out, glow 2s infinite;
+}
+.channel-progress-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 12px;
+    border-radius: 8px;
+    margin: 3px 0;
+    font-size: 0.9rem;
+    transition: all 0.3s ease;
+}
+.channel-progress-item.current {
+    background: rgba(25, 118, 210, 0.15);
+    font-weight: 600;
+}
+.channel-progress-item.done {
+    background: rgba(76, 175, 80, 0.08);
+    opacity: 0.7;
+}
+.channel-progress-item.error {
+    background: rgba(239, 83, 80, 0.1);
+    opacity: 0.7;
+}
+
+/* ===== METRIC CARDS ===== */
+.metric-card {
+    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+    border: 1px solid rgba(255, 215, 0, 0.15);
+    border-radius: 14px;
+    padding: 18px;
+    text-align: center;
+    animation: fadeInUp 0.5s ease-out;
+    transition: all 0.3s ease;
+}
+.metric-card:hover {
+    border-color: rgba(255, 215, 0, 0.4);
+    transform: translateY(-3px);
+    box-shadow: 0 8px 25px rgba(0, 0, 0, 0.3);
+}
+.metric-card .metric-value {
+    font-size: 1.8rem;
+    font-weight: 800;
+    background: linear-gradient(135deg, #FFD700, #FFA500);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+.metric-card .metric-label {
+    font-size: 0.8rem;
+    color: rgba(255, 255, 255, 0.6);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-top: 4px;
+}
+
+/* ===== SHIMMER LOADING ===== */
+.shimmer {
+    background: linear-gradient(90deg, transparent 25%, rgba(255,255,255,0.08) 50%, transparent 75%);
+    background-size: 200% 100%;
+    animation: shimmer 1.5s infinite;
+    border-radius: 8px;
+    height: 40px;
+}
+
+/* ===== PROGRESS BAR GLOW ===== */
+.stProgress > div > div {
+    animation: progressPulse 2s infinite;
+}
+
+/* ===== RESPONSIVE ===== */
 @media (max-width: 768px) {
-    .block-container { padding: 1rem 0.5rem !important; }
-    [data-testid="stMetric"] { padding: 0.4rem 0.6rem; }
-    [data-testid="stMetricLabel"] { font-size: 0.75rem !important; }
-    [data-testid="stMetricValue"] { font-size: 1.1rem !important; }
-    .stTabs [data-baseweb="tab-list"] { gap: 0.25rem; }
-    .stTabs [data-baseweb="tab"] { padding: 0.4rem 0.6rem; font-size: 0.8rem; }
-    .stDataFrame { font-size: 0.8rem; }
-    h1 { font-size: 1.4rem !important; }
-    h2, h3 { font-size: 1.1rem !important; }
+    .block-container { padding: 0.8rem 0.4rem !important; }
+    [data-testid="stMetric"] { padding: 0.3rem 0.5rem; }
+    [data-testid="stMetricLabel"] { font-size: 0.7rem !important; }
+    [data-testid="stMetricValue"] { font-size: 1rem !important; }
+    .stTabs [data-baseweb="tab-list"] { gap: 0.15rem; flex-wrap: wrap; }
+    .stTabs [data-baseweb="tab"] { padding: 0.3rem 0.5rem; font-size: 0.75rem; }
+    h1 { font-size: 1.3rem !important; }
+    h2, h3 { font-size: 1rem !important; }
+    .stColumns > div { min-width: 0 !important; }
+    .metric-card { padding: 12px; }
+    .metric-card .metric-value { font-size: 1.3rem; }
+    .scan-card { padding: 14px; }
+    .analysis-phase { padding: 12px; }
+    .stButton > button { width: 100%; }
 }
-
-/* Tablet tweaks */
 @media (min-width: 769px) and (max-width: 1024px) {
-    .block-container { padding: 1rem 1.5rem !important; }
+    .block-container { padding: 1rem 1.2rem !important; }
 }
-
-/* Scrollable dataframe on mobile */
+@media (max-width: 480px) {
+    .block-container { padding: 0.5rem 0.3rem !important; }
+    .stColumns > div { padding: 0 4px !important; }
+    [data-testid="stMetric"] { padding: 0.2rem 0.3rem; }
+}
 [data-testid="stDataFrame"] > div {
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
 }
-
-/* PnL colors */
 .pnl-positive { color: #00c853; font-weight: bold; }
 .pnl-negative { color: #ff1744; font-weight: bold; }
 </style>
@@ -408,11 +592,33 @@ elif st.session_state.step == "scanning":
         _api_id = validate_api_id(ENV_API_ID)
         _api_hash = ENV_API_HASH
 
-        scan_progress = st.progress(0, text="🔄 Connexion à Telegram...")
-        scan_status = st.empty()
+        # Animated step indicators
+        step_container = st.empty()
+        scan_log = st.empty()
+        scan_progress = st.progress(0, text="🔄 Démarrage...")
+
+        def render_scan_steps(current_step, channels_found=0, signals_found=0, current_channel=""):
+            steps = [
+                ("Connexion Telegram", "connecting" if current_step == 0 else ("done" if current_step > 0 else "pending")),
+                ("Récupération des channels", "active" if current_step == 1 else ("done" if current_step > 1 else "pending")),
+                ("Scan des signaux", "active" if current_step == 2 else ("done" if current_step > 2 else "pending")),
+                ("Finalisation", "active" if current_step == 3 else "pending"),
+            ]
+            icons = {"done": "✅", "active": "⚡", "pending": "⏳", "connecting": "🔌"}
+            html = '<div class="scan-card">'
+            for name, status in steps:
+                icon = icons.get(status, "⏳")
+                html += f'<div class="scan-step {status}"><span class="scan-step-icon">{icon}</span><span>{name}</span></div>'
+            if channels_found > 0:
+                html += f'<div style="margin-top:12px;padding:8px 12px;background:rgba(255,215,0,0.08);border-radius:8px;font-size:0.85rem;">📋 {channels_found} channels trouvés · 🎯 {signals_found} avec signaux</div>'
+            if current_channel:
+                html += f'<div class="scan-channel-item scanning">🔍 Scan: {current_channel[:40]}...</div>'
+            html += '</div>'
+            step_container.markdown(html, unsafe_allow_html=True)
+
+        render_scan_steps(0)
 
         async def _get_all_channels(api_id_val, api_hash_val):
-            """Récupère la liste des channels."""
             client = TelegramClient("gold_session", api_id_val, api_hash_val)
             await client.start()
             try:
@@ -433,7 +639,6 @@ elif st.session_state.step == "scanning":
                 await client.disconnect()
 
         async def _scan_one_channel(api_id_val, api_hash_val, channel_id):
-            """Scan un seul channel pour les signaux."""
             client = TelegramClient("gold_session", api_id_val, api_hash_val)
             await client.start()
             try:
@@ -441,23 +646,25 @@ elif st.session_state.step == "scanning":
             finally:
                 await client.disconnect()
 
-        # Phase 1: récupérer la liste des channels
-        scan_progress.progress(0.05, text="🔄 Connexion à Telegram...")
+        # Phase 1
+        render_scan_steps(1)
         channels = run_telethon(_get_all_channels, _api_id, _api_hash)
-        scan_status.text(f"📋 {len(channels)} channels trouvés — scan en cours...")
+        render_scan_steps(2, channels_found=len(channels))
 
-        # Phase 2: scanner chaque channel (UI updates dans le thread principal)
+        # Phase 2
         trading_channels = []
         total = len(channels)
         for i, ch in enumerate(channels):
+            render_scan_steps(2, channels_found=len(channels),
+                            signals_found=len(trading_channels),
+                            current_channel=ch['title'])
             scan_progress.progress(
-                0.05 + 0.95 * ((i + 1) / total),
-                text=f"🔍 Scan {i+1}/{total} — {ch['title'][:30]}..."
+                0.1 + 0.85 * ((i + 1) / total),
+                text=f"🔍 {i+1}/{total} — {ch['title'][:30]}"
             )
             try:
                 scan = run_telethon(_scan_one_channel, _api_id, _api_hash, ch["id"])
                 if scan.get("has_signals"):
-                    # Convert format_profile to dict for safe session_state storage
                     fp = scan.get("format_profile")
                     fp_dict = fp.to_dict() if fp and hasattr(fp, 'to_dict') else None
                     trading_channels.append({
@@ -467,13 +674,15 @@ elif st.session_state.step == "scanning":
                         "total_messages": scan.get("total_messages", 0),
                         "format_profile": fp_dict,
                     })
+                    scan_log.success(f"🎯 **{ch['title'][:30]}** — {scan['sample_count']} signaux détectés")
             except Exception as e:
-                # Skip channel on error, continue scanning
                 print(f"Error scanning channel {ch['title']}: {e}")
                 continue
 
+        # Phase 3
+        render_scan_steps(3, channels_found=len(channels), signals_found=len(trading_channels))
         scan_progress.progress(1.0, text="✅ Scan terminé !")
-        scan_status.success(f"✅ {len(trading_channels)} channels avec signaux trouvés sur {total} scannés")
+        scan_log.success(f"✅ **{len(trading_channels)}** channels avec signaux trouvés sur **{total}** scannés")
 
         st.session_state.channels = channels
         st.session_state.trading_channels = trading_channels
@@ -493,7 +702,7 @@ elif st.session_state.step == "scanning":
     except Exception as e:
         st.session_state._processing = False
         scan_progress.empty()
-        scan_status.error(f"❌ Erreur pendant le scan : {e}")
+        scan_log.error(f"❌ Erreur pendant le scan : {e}")
         import traceback
         st.code(traceback.format_exc(), language="python")
         if st.button("🔄 Réinitialiser", key="reset_scan"):
@@ -605,30 +814,63 @@ elif st.session_state.step == "analyzing":
         st.session_state._processing = True
         st.session_state._processing_start = time.time()
         st.subheader("🔬 Analyse en cours...")
+
+        # Animated analysis UI
+        analysis_card = st.empty()
+        analysis_log = st.empty()
+        channel_list = st.empty()
+        analysis_progress = st.progress(0, text="📈 Initialisation...")
+
+        _completed_channels = []
+        _current_channel = ""
+
+        def render_analysis_ui(phase, current="", total_count=0, done_count=0, err_count=0):
+            phases = [
+                ("Récupération des prix gold", "done" if phase > 0 else ("active" if phase == 0 else "pending")),
+                ("Analyse des channels", "active" if phase == 1 else ("done" if phase > 1 else "pending")),
+                ("Calcul des scores", "active" if phase == 2 else "pending"),
+            ]
+            icons = {"done": "✅", "active": "⚡", "pending": "⏳"}
+            html = '<div class="analysis-phase' + (' active' if phase < 2 else '') + '">'
+            for name, status in phases:
+                icon = icons.get(status, "⏳")
+                html += f'<div class="scan-step {status}"><span class="scan-step-icon">{icon}</span><span>{name}</span></div>'
+            if total_count > 0:
+                html += f'<div style="margin-top:10px;font-size:0.85rem;color:rgba(255,255,255,0.5);">{done_count}/{total_count} analysés'
+                if err_count > 0:
+                    html += f' · ❌ {err_count} erreurs'
+                html += '</div>'
+            if current:
+                html += f'<div class="channel-progress-item current">⚡ {current[:40]}...</div>'
+            for ch_name, ch_ok in reversed(_completed_channels[-5:]):
+                cls = "done" if ch_ok else "error"
+                icon = "✅" if ch_ok else "❌"
+                html += f'<div class="channel-progress-item {cls}">{icon} {ch_name[:35]}</div>'
+            html += '</div>'
+            analysis_card.markdown(html, unsafe_allow_html=True)
+
+        render_analysis_ui(0)
         days = analysis_days
 
         # Phase 1: Récupération des prix
-        price_progress = st.progress(0, text="📈 Récupération des prix gold...")
-        price_status = st.empty()
-
-        price_status.text("⏳ Chargement des données Yahoo Finance (jusqu'à 28 jours en 1min)...")
-        price_progress.progress(0.1)
+        analysis_progress.progress(0.05, text="📈 Récupération des prix gold...")
+        analysis_log.text("⏳ Chargement des données Yahoo Finance...")
 
         with st.spinner(""):
             gold_prices = fetch_gold_prices(days=days + 5, interval="1m")
 
-        price_progress.progress(0.3, text="✅ Prix gold récupérés")
-        price_status.success(f"✅ {len(gold_prices)} bougies chargées")
+        render_analysis_ui(1)
+        analysis_progress.progress(0.15, text=f"✅ {len(gold_prices)} bougies chargées")
+        analysis_log.success(f"📈 {len(gold_prices)} bougies gold chargées")
 
         # Phase 2: Analyse des channels
-        analysis_progress = st.progress(0, text="🔬 Analyse des channels...")
-        analysis_status = st.empty()
-
         def update_progress(current, total, name):
             try:
-                pct = 0.3 + 0.7 * (current / total)
-                analysis_progress.progress(pct, text=f"🔬 Analyse: {name[:30]}... ({current}/{total})")
-                analysis_status.text(f"📊 {current}/{total} — {name}")
+                pct = 0.15 + 0.8 * (current / total)
+                analysis_progress.progress(pct, text=f"🔬 {current}/{total} — {name[:30]}")
+                _completed_channels.append((name, True))
+                render_analysis_ui(1, current=name, total_count=total,
+                                 done_count=current, err_count=0)
             except Exception:
                 pass
 
@@ -648,8 +890,9 @@ elif st.session_state.step == "analyzing":
                 await client.disconnect()
 
         results = run_telethon(_run_full, _api_id, _api_hash, selected)
+        render_analysis_ui(2)
         analysis_progress.progress(1.0, text="✅ Analyse terminée !")
-        analysis_status.success(f"✅ {len(results)} channels analysés")
+        analysis_log.success(f"✅ **{len(results)}** channels analysés")
 
         st.session_state.analysis_results = results
         st.session_state._processing = False
