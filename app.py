@@ -53,14 +53,11 @@ def validate_api_id(raw: str) -> int:
 
 
 # === Sync Telethon Wrapper ===
-_executor = concurrent.futures.ThreadPoolExecutor(max_workers=2)
+_executor = concurrent.futures.ThreadPoolExecutor(max_workers=4)
 
 
 def run_telethon(coro_func, *args, **kwargs):
-    """Exécute une coroutine Telethon dans un thread avec son propre event loop.
-
-    Résilient aux déconnexions WebSocket (Chrome minimize/restore).
-    """
+    """Exécute une coroutine Telethon dans un thread avec son propre event loop."""
     def _wrapper():
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
@@ -76,11 +73,10 @@ def run_telethon(coro_func, *args, **kwargs):
             except Exception:
                 pass
     try:
-        return _executor.submit(_wrapper).result(timeout=180)
+        return _executor.submit(_wrapper).result(timeout=600)
     except concurrent.futures.TimeoutError:
-        raise Exception("⏱️ Timeout: l'opération Telegram a pris trop de temps. Réessaie.")
+        raise Exception("⏱️ Timeout (10 min): l'opération a pris trop de temps. Vérifie ta connexion Telegram.")
     except Exception as e:
-        # Re-raise with cleaner message for connection errors
         err = str(e)
         if "connection" in err.lower() or "websocket" in err.lower():
             raise Exception(f"🔌 Connexion perdue: {err}")

@@ -308,23 +308,33 @@ async def run_full_analysis(client: TelegramClient,
     Returns:
         List of ChannelScore objects, sorted by score
     """
-    # Fetch gold prices once
-    gold_prices = fetch_gold_prices(days=days + 5, interval="1m")
+    # Fetch gold prices once (in executor to not block event loop)
+    loop = asyncio.get_event_loop()
+    gold_prices = await loop.run_in_executor(
+        None, lambda: fetch_gold_prices(days=days + 5, interval="1m")
+    )
 
     channel_results = {}
     total = len(channel_ids)
 
     for i, (ch_id, ch_name) in enumerate(channel_ids.items()):
         if progress_callback:
-            progress_callback(i + 1, total, ch_name)
+            try:
+                progress_callback(i + 1, total, ch_name)
+            except Exception:
+                pass
 
         # Get format profile if available
         profile = format_profiles.get(ch_id) if format_profiles else None
 
-        result = await analyze_channel_full(
-            client, ch_id, ch_name, days, gold_prices,
-            format_profile=profile
-        )
-        channel_results[ch_id] = result
+        try:
+            result = await analyze_channel_full(
+                client, ch_id, ch_name, days, gold_prices,
+                format_profile=profile
+            )
+            channel_results[ch_id] = result
+        except Exception as e:
+            print(f"Error analyzing channel {ch_name}: {e}")
+            channel_results[ch_id] = {"name": ch_name, "signals": [], "error": str(e)}
 
     return score_channels(channel_results)
