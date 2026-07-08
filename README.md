@@ -1,24 +1,32 @@
-# 🏆 Gold Trading Channel Analyzer
+# 🏆 Gold Signal Extractor
 
-Analyse et classe tes channels Telegram de trading gold par rentabilité réelle.
+Extrait les signaux de trading gold depuis Telegram et exporte en CSV pour backtesting MQ5/MT5.
 
 ## 🎯 Fonctionnalités
 
-- **Scan automatique** — Détecte quels channels contiennent des signaux de trading
-- **Multi-format** — Parse les signaux dans tous les formats (BUY/SELL, ENTRY/TP/SL, etc.)
-- **Backtesting** — Vérifie chaque signal contre les vrais prix XAUUSD
-- **Scoring** — Classe les channels par win rate, R:R, PnL total
-- **Export** — Télécharge les résultats en Excel ou rapport texte
+- **Scan automatique** — Détecte les channels Telegram avec signaux de trading
+- **Parser robuste** — Supporte BUY/SELL, zones d'entrée, SL auto-généré, multi-TP
+- **Export CSV** — Un fichier par channel, format prêt pour MQ5
+- **Export ZIP** — Télécharge tous les channels d'un coup
+- **Prévisualisation** — Vérifie le CSV avant de télécharger
 
-## 📊 Métriques par channel
+## 📊 Format CSV
 
-| Métrique | Description |
-|----------|-------------|
-| **Score** | Note composite 0-100 (win rate, R:R, volume, consistance) |
-| **Win Rate** | % de signaux gagnants |
-| **R:R Ratio** | Risk/Reward moyen |
-| **PnL Total** | Profit total en pips |
-| **Temps moyen** | Durée moyenne pour atteindre TP/SL |
+```csv
+datetime,direction,entry,zone_low,zone_high,sl,tp1,tp2,tp3,tp4,tp5,tp6
+2026-06-15 14:30,BUY,3245.00,3245.00,3245.00,3230.00,3255.00,3265.00,3275.00,,,
+2026-06-15 16:00,SELL,3260.00,3255.00,3265.00,3280.00,3240.00,3230.00,,,,,
+```
+
+| Colonne | Description |
+|---------|-------------|
+| `datetime` | Date et heure du signal (YYYY-MM-DD HH:MM) |
+| `direction` | BUY ou SELL |
+| `entry` | Prix d'entrée (milieu de zone) |
+| `zone_low` | Basse de la zone d'entrée |
+| `zone_high` | Haute de la zone d'entrée |
+| `sl` | Stop Loss |
+| `tp1`..`tp6` | Take Profits (1 à 6) |
 
 ## 🚀 Installation
 
@@ -36,9 +44,8 @@ streamlit run app.py
 
 1. **Connexion** — Entre tes identifiants Telegram (API_ID, API_HASH, téléphone)
 2. **Scan** — L'app scanne tes channels pour détecter les signaux
-3. **Sélection** — Choisis les channels à analyser
-4. **Analyse** — Backtesting sur 1 mois de données
-5. **Résultats** — Classement + détails + export
+3. **Sélection** — Choisis les channels à exporter
+4. **Export** — Télécharge le CSV ou le ZIP
 
 ## 🔑 Prérequis
 
@@ -49,17 +56,23 @@ streamlit run app.py
 
 ```
 onee-tech-app/
-├── app.py              # Interface Streamlit principale
-├── signal_parser.py    # Parse les signaux de trading
-├── gold_prices.py      # Récupère les prix XAUUSD
-├── backtester.py       # Backtest les signaux
-├── scorer.py           # Score et classe les channels
-├── bot.py              # Script original (list channels)
-└── requirements.txt    # Dépendances
+├── app.py              # Interface Streamlit
+├── signal_parser.py    # Parse les signaux de trading (v8)
+├── csv_exporter.py     # Export CSV pour MQ5
+├── bot.py              # Script original (conservé)
+├── .env                # Identifiants Telegram (gitignored)
+├── requirements.txt    # Dépendances
+└── archived/           # Anciens fichiers (backtester, scorer, etc.)
 ```
+
+## 📂 Pour le backtesting MQ5
+
+1. Exporte le ZIP depuis l'app
+2. Place les CSV dans le dossier `Files` de MT5
+3. Lance le script MQ5 qui lit le CSV et exécute le backtesting
 
 ## ⚠️ Sécurité
 
 - Ne partage jamais ton API_HASH ou session
 - La session est sauvegardée localement dans `gold_session.session`
-- L'app ne stocke aucun message Telegram
+- Le fichier `.env` est dans `.gitignore`
