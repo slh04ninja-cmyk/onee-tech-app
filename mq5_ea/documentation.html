@@ -302,15 +302,37 @@ PnL total &ge; 30.0$ → FERMETURE MANUELLE</div>
 
 <h3>Calcul du SL</h3>
 <div class="signal-box">SL_Custom = true :
-  Prix Unique → SL = entry &plusmn; SL_PrixUnique pts
-  Zone → SL = entry &plusmn; SL_PlusProche pts
-  Quick Alert → SL = entry &plusmn; SL_QuickAlert pts
+
+  <span style="color:var(--cyan)">Zone (BUY) :</span>
+    zone_edge = zone_low
+    distance = |SL - zone_low|
+    si distance > SL_PlusProche → SL = zone_low - SL_PlusProche
+    sinon → SL du signal (gardé)
+
+  <span style="color:var(--cyan)">Zone (SELL) :</span>
+    zone_edge = zone_high
+    distance = |SL - zone_high|
+    si distance > SL_PlusProche → SL = zone_high + SL_PlusProche
+    sinon → SL du signal (gardé)
+
+  <span style="color:var(--cyan)">Prix Unique :</span>
+    distance = |SL - entry|
+    si distance > SL_PrixUnique → SL = entry &plusmn; SL_PrixUnique
+    sinon → SL du signal (gardé)
+
+  <span style="color:var(--cyan)">Quick Alert :</span>
+    SL = entry &plusmn; SL_QuickAlert
 
 SL_Custom = false :
   SL = valeur du CSV (telle quelle)
 
 Spread_Cost > 0 :
-  SL ajusté + Spread_Cost pts (pour couvrir le coût du spread)</div>
+  SL ajusté &plusmn; Spread_Cost (pour couvrir le coût du spread)
+
+<span style="color:var(--yellow)">Exemple SELL zone 3255-3265, SL=3280, SL_PlusProche=10$ :</span>
+  zone_edge = 3265 (zone_high)
+  distance = 3280 - 3265 = 15$ > 10$
+  SL = 3265 + 10 = 3275 (resserré)</div>
 </section>
 
 <!-- 9. Spread & Slippage -->

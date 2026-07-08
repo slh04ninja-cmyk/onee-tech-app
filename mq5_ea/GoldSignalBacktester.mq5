@@ -831,37 +831,60 @@ double CalculateSL(const SignalData &sig, double entry_price)
    {
       bool is_zone = (sig.zone_low != sig.zone_high);
       bool is_qa = (sig.tp_count == 0 && sig.sl == 0);
-      double max_dist = 0;
 
       if(is_qa)
-         max_dist = InpSL_QuickAlert;
-      else if(is_zone)
-         max_dist = InpSL_PlusProche;
-      else
-         max_dist = InpSL_PrixUnique;
-
-      double dist_pts = max_dist * _Point * 10; // Gold
-
-      if(sig.direction == "BUY")
       {
-         double calc_sl = entry_price - dist_pts;
-         sl = (sl > 0) ? MathMax(calc_sl, sl) : calc_sl;
+         // Quick Alert : SL provisoire
+         double dist = InpSL_QuickAlert;
+         if(sig.direction == "BUY")
+            sl = sig.zone_low - dist;
+         else
+            sl = sig.zone_low + dist;
+      }
+      else if(is_zone)
+      {
+         // Zone : SL_PlusProche = distance max ($) entre zone_edge et SL
+         // Trouver le zone_edge le plus proche du SL
+         double zone_edge;
+         if(sig.direction == "BUY")
+            zone_edge = sig.zone_low;   // zone basse → SL en dessous
+         else
+            zone_edge = sig.zone_high;  // zone haute → SL au-dessus
+
+         double distance = MathAbs(sl - zone_edge);
+
+         if(distance > InpSL_PlusProche)
+         {
+            // Resserrer le SL
+            if(sig.direction == "BUY")
+               sl = zone_edge - InpSL_PlusProche;
+            else
+               sl = zone_edge + InpSL_PlusProche;
+         }
+         // Sinon garder le SL du signal (déjà assez proche)
       }
       else
       {
-         double calc_sl = entry_price + dist_pts;
-         sl = (sl > 0) ? MathMin(calc_sl, sl) : calc_sl;
+         // Prix Unique : SL_PrixUnique = distance max ($) entre entry et SL
+         double distance = MathAbs(sl - entry_price);
+
+         if(distance > InpSL_PrixUnique)
+         {
+            if(sig.direction == "BUY")
+               sl = entry_price - InpSL_PrixUnique;
+            else
+               sl = entry_price + InpSL_PrixUnique;
+         }
       }
    }
 
    // Ajouter le coût du spread
    if(InpSpread_Cost > 0)
    {
-      double spread_cost = InpSpread_Cost * _Point * 10;
       if(sig.direction == "BUY")
-         sl -= spread_cost;
+         sl -= InpSpread_Cost;
       else
-         sl += spread_cost;
+         sl += InpSpread_Cost;
    }
 
    return NormalizeDouble(sl, _Digits);
