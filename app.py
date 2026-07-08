@@ -519,17 +519,30 @@ elif st.session_state.step == "select":
             st.divider()
             st.subheader("📋 Résumé des exports")
 
-            df_summary = pd.DataFrame([
-                {
-                    "Channel": s["channel_name"],
-                    "ID": s["channel_id"],
-                    "Signaux extraits": s["filtered_signals"],
-                    "Fichier": s["filename"],
-                }
-                for s in summary
-                if s["channel_id"] in selected_ids
-            ])
-            st.dataframe(df_summary, use_container_width=True, hide_index=True)
+            # Tableau avec bouton télécharger par channel
+            for s in summary:
+                if s["channel_id"] not in selected_ids:
+                    continue
+                ch_id = s["channel_id"]
+                ch_name = s["channel_name"]
+                count = s["filtered_signals"]
+                filename = s["filename"]
+
+                data = channel_signals.get(ch_id, {})
+                signals = data.get("signals", [])
+                csv_content = signals_to_csv(signals, ch_name, ch_id, pair_filter=pf)
+
+                col_info, col_btn = st.columns([4, 1])
+                with col_info:
+                    st.markdown(f"**{ch_name}** · `{ch_id}` · 📊 {count} signaux · `{filename}`")
+                with col_btn:
+                    st.download_button(
+                        "📥 Télécharger",
+                        data=csv_content,
+                        file_name=filename,
+                        mime="text/csv",
+                        key=f"dl_{ch_id}",
+                    )
 
             total_signals = sum(
                 s["filtered_signals"] for s in summary
