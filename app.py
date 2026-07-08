@@ -371,18 +371,24 @@ elif st.session_state.step == "scanning":
                         messages.append((message.text, message.date.replace(tzinfo=None)))
 
                 if not messages:
-                    return {"has_signals": False, "signals": [], "count": 0}
+                    return {"has_signals": False, "signals": [], "count": 0, "debug": "no messages"}
 
                 parser = SignalParser()
-                signals = parser.parse_messages(messages)
-                # Garder uniquement les signaux TRADE avec au moins un TP
-                trade_signals = [s for s in signals if s.signal_type == "TRADE" and s.tps]
+                all_parsed = []
+                trade_signals = []
+                for text, ts in messages:
+                    sig = parser.parse(text, ts)
+                    if sig:
+                        all_parsed.append(sig)
+                        if sig.signal_type == "TRADE" and sig.tps:
+                            trade_signals.append(sig)
 
                 return {
                     "has_signals": len(trade_signals) > 0,
                     "signals": trade_signals,
                     "count": len(trade_signals),
                     "total_messages": len(messages),
+                    "all_parsed": len(all_parsed),
                 }
             finally:
                 await client.disconnect()
@@ -404,6 +410,8 @@ elif st.session_state.step == "scanning":
             )
             try:
                 scan = run_telethon(_scan_one_channel, _api_id, _api_hash, ch["id"], analysis_days)
+                total_msgs = scan.get("total_messages", 0)
+                all_parsed = scan.get("all_parsed", 0)
                 if scan["has_signals"]:
                     trading_channels.append({
                         **ch,
@@ -413,9 +421,14 @@ elif st.session_state.step == "scanning":
                         "name": ch["title"],
                         "signals": scan["signals"],
                     }
-                    scan_log.success(f"🎯 **{ch['title'][:30]}** — {scan['count']} signaux")
+                    scan_log.success(f"🎯 **{ch['title'][:30]}** — {scan['count']} signaux ({total_msgs} msgs, {all_parsed} parsés)")
+                else:
+                    # Afficher pourquoi aucun signal n'a été trouvé
+                    if total_msgs > 0:
+                        scan_log.info(f"ℹ️ **{ch['title'][:30]}** — {total_msgs} msgs, {all_parsed} parsés, 0 signal TRADE avec TP")
             except Exception as e:
                 print(f"Error scanning {ch['title']}: {e}")
+                scan_log.warning(f"⚠️ Erreur scan **{ch['title'][:30]}**: {e}")
                 continue
 
         scan_progress.progress(1.0, text="✅ Scan terminé !")

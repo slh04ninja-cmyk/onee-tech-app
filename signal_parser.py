@@ -516,8 +516,16 @@ class SignalParser:
     def _parse_trade(self, normalized_text: str, timestamp: Optional[datetime] = None) -> Optional[TradeSignal]:
         symbol = _extract_symbol(normalized_text)
         if not symbol:
-            log.debug(f"[PARSING] Symbole non trouvé dans : {normalized_text[:100]}")
-            return None
+            # Pas de symbole explicite → on vérifie si le prix ressemble à du gold (1000-9999)
+            # et si BUY/SELL est présent, on assume XAUUSD
+            has_gold_price = bool(re.search(r'\b[1-9]\d{3}(?:\.\d+)?\b', normalized_text))
+            has_action = bool(re.search(r'\b(BUY|SELL|LONG|SHORT|PURCHASE|BUYING|SELLING|SEL)\b', normalized_text))
+            if has_gold_price and has_action:
+                symbol = "XAUUSD"
+                log.info(f"[PARSING] Symbole par défaut: XAUUSD (prix gold détecté)")
+            else:
+                log.debug(f"[PARSING] Symbole non trouvé dans : {normalized_text[:100]}")
+                return None
 
         action = _extract_action(normalized_text)
         if not action:
