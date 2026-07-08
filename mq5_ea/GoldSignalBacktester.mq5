@@ -44,21 +44,21 @@ input group "📊 Lots & Exécution"
 input double   InpLotTotal          = 0.02;    // Lot total (split 50/50 zone)
 input double   InpLotUnique         = 0.01;    // Lot prix unique + Quick Alert
 input int      InpMaxPositions      = 3;       // Positions max simultanées
-input double   InpMaxSpreadPoints   = 50.0;    // Spread max (points)
-input int      InpSlippage          = 20;      // Slippage (points)
+input double   InpMaxSpreadPoints   = 50.0;    // Spread max (pts MT5)
+input int      InpSlippage          = 20;      // Slippage (pts MT5)
 input int      InpOrderExpiryMin    = 240;     // Expiration ordres LIMIT (minutes)
 input long     InpMagicNumber       = 20250226;// Magic Number
 
 // --- Break Even ---
 input group "🔒 Break Even (BE)"
 input bool     InpBE_Enabled        = true;    // Activer BE
-input double   InpPNL_Trigger       = 8.0;    // PnL min (pts prix) pour BE
+input double   InpPNL_Trigger       = 8.0;    // PnL min ($) pour BE
 input bool     InpBE_CancelPending  = true;    // Annuler pending au BE
 
 // --- Gain Fixe ---
 input group "🎯 Gain Fixe (TP_FIXED)"
 input bool     InpTPFixed_Enabled   = true;    // Activer gain fixe
-input double   InpTPFixed_GainUSD   = 15.0;   // Gain cible / position (pts prix)
+input double   InpTPFixed_GainUSD   = 15.0;   // Gain cible / position ($)
 input bool     InpTPFixed_CloseAll  = true;    // Fermer tout au gain fixe
 
 // --- TP_TRIGGER ---
@@ -69,9 +69,9 @@ input int      InpTPTrigger_Index   = 2;       // Index TP déclencheur (0-based
 // --- Stop Loss ---
 input group "🛡️ Stop Loss Configurable"
 input bool     InpSL_Custom         = true;    // SL personnalisé (sinon signal)
-input double   InpSL_PrixUnique     = 15.0;   // SL max prix unique (pts)
-input double   InpSL_PlusProche     = 10.0;   // Distance SL zone (pts)
-input double   InpSL_QuickAlert     = 10.0;   // SL provisoire Quick Alert (pts)
+input double   InpSL_PrixUnique     = 15.0;   // SL max prix unique ($)
+input double   InpSL_PlusProche     = 10.0;   // Distance SL zone ($)
+input double   InpSL_QuickAlert     = 10.0;   // SL provisoire Quick Alert ($)
 input double   InpRR_Ratio          = 1.5;    // RR pour TP auto si SL seul
 
 // --- Filtres ---
@@ -86,7 +86,7 @@ input bool     InpDailyLimit_Enabled= true;    // Activer limite quotidienne
 input group "📈 Spread & Slippage"
 input bool     InpSpread_Filter     = true;    // Filtrer par spread
 input bool     InpSlippage_Enabled  = true;    // Appliquer slippage
-input double   InpSpread_Cost       = 0.0;    // Coût spread ajouté au SL (pts)
+input double   InpSpread_Cost       = 0.0;    // Coût spread ajouté au SL ($)
 
 // --- Scénarios ---
 input group "📋 Scénarios d'exécution"
@@ -781,19 +781,18 @@ void ExecuteZone(const SignalData &sig, double price, string scenario)
 //+------------------------------------------------------------------+
 void ExecuteQuickAlert(const SignalData &sig, double price, string scenario)
 {
-   // Générer SL/TP provisoires
-   double sl_offset = InpSL_QuickAlert * _Point * 10; // Gold: 1 pt = 0.1
+   // Générer SL/TP provisoires (SL_QuickAlert est en $, directement en prix)
    double sl_price, tp_price;
 
    if(sig.direction == "BUY")
    {
-      sl_price = sig.zone_low - sl_offset;
-      tp_price = sig.zone_low + sl_offset * InpRR_Ratio;
+      sl_price = sig.zone_low - InpSL_QuickAlert;
+      tp_price = sig.zone_low + InpSL_QuickAlert * InpRR_Ratio;
    }
    else
    {
-      sl_price = sig.zone_low + sl_offset;
-      tp_price = sig.zone_low - sl_offset * InpRR_Ratio;
+      sl_price = sig.zone_low + InpSL_QuickAlert;
+      tp_price = sig.zone_low - InpSL_QuickAlert * InpRR_Ratio;
    }
 
    double lot = InpLotUnique;
