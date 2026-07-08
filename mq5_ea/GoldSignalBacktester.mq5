@@ -1,12 +1,12 @@
 //+------------------------------------------------------------------+
 //| GoldSignalBacktester.mq5                                         |
 //| Expert Advisor — Backtesting signaux Telegram Gold               |
-//| Version 1.0.0                                                    |
+//| Version 1.0.1                                                    |
 //| Lit les CSV exportés par Gold Signal Extractor                   |
 //| Exécute les signaux selon la logique GZL TradingBot V9.0.0      |
 //+------------------------------------------------------------------+
 #property copyright "GZL TradingBot"
-#property version   "1.00"
+#property version   "1.01"
 #property strict
 
 #include <Trade\Trade.mqh>
