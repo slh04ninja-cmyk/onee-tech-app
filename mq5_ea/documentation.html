@@ -1,0 +1,437 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GoldSignalBacktester V1.0.0 — Documentation</title>
+<style>
+:root{--bg:#0d1117;--surface:#161b22;--border:#30363d;--text:#c9d1d9;--text-muted:#8b949e;--accent:#58a6ff;--green:#3fb950;--red:#f85149;--orange:#d29922;--purple:#bc8cff;--cyan:#39d2c0;--yellow:#e3b341}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;background:var(--bg);color:var(--text);line-height:1.7;padding:0}
+.container{max-width:1000px;margin:0 auto;padding:2rem 1.5rem}
+.hero{background:linear-gradient(135deg,#1a1e2e 0%,#0d1117 100%);border:1px solid var(--border);border-radius:12px;padding:2.5rem;margin-bottom:2rem;text-align:center}
+.hero h1{font-size:2rem;color:var(--accent);margin-bottom:0.5rem}
+.hero .subtitle{color:var(--text-muted);font-size:1.1rem}
+.hero .version{display:inline-block;background:var(--accent);color:var(--bg);padding:0.2rem 0.8rem;border-radius:20px;font-size:0.8rem;font-weight:600;margin-top:1rem}
+section{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:2rem;margin-bottom:1.5rem}
+section h2{color:var(--accent);font-size:1.4rem;margin-bottom:1rem;padding-bottom:0.5rem;border-bottom:1px solid var(--border)}
+section h3{color:var(--cyan);font-size:1.1rem;margin:1.5rem 0 0.8rem}
+section h4{color:var(--yellow);font-size:1rem;margin:1.2rem 0 0.6rem}
+p{margin-bottom:0.8rem}
+ul,ol{padding-left:1.5rem;margin-bottom:1rem}
+li{margin-bottom:0.4rem}
+table{width:100%;border-collapse:collapse;margin:1rem 0;font-size:0.9rem}
+th,td{padding:0.6rem 0.8rem;border:1px solid var(--border);text-align:left}
+th{background:#1a1e2e;color:var(--accent);font-weight:600}
+td{background:var(--bg)}
+code{background:rgba(255,255,255,0.1);padding:0.15rem 0.4rem;border-radius:4px;font-size:0.85rem;font-family:'SF Mono','Fira Code',monospace}
+.signal-box{background:#0d1117;border:1px solid var(--border);border-radius:8px;padding:1rem 1.2rem;font-family:'SF Mono','Fira Code',monospace;font-size:0.85rem;margin:0.8rem 0;overflow-x:auto;white-space:pre;line-height:1.5}
+.flow{background:#0d1117;border:1px solid var(--border);border-radius:8px;padding:1.2rem;font-family:'SF Mono','Fira Code',monospace;font-size:0.82rem;line-height:1.6;margin:1rem 0;overflow-x:auto;white-space:pre}
+.highlight{border-left:3px solid var(--accent);padding:0.8rem 1rem;background:rgba(88,166,255,0.05);border-radius:0 8px 8px 0;margin:1rem 0}
+.highlight.warn{border-left-color:var(--orange);background:rgba(210,153,34,0.05)}
+.highlight.danger{border-left-color:var(--red);background:rgba(248,81,73,0.05)}
+.highlight.success{border-left-color:var(--green);background:rgba(63,185,80,0.05)}
+.badge{display:inline-block;padding:0.15rem 0.6rem;border-radius:12px;font-size:0.75rem;font-weight:600}
+.badge-green{background:rgba(63,185,80,0.15);color:var(--green)}
+.badge-red{background:rgba(248,81,73,0.15);color:var(--red)}
+.badge-orange{background:rgba(210,153,34,0.15);color:var(--orange)}
+.badge-purple{background:rgba(188,140,255,0.15);color:var(--purple)}
+.toc{background:#0d1117;border:1px solid var(--border);border-radius:8px;padding:1.2rem 1.5rem;margin-bottom:1.5rem}
+.toc h3{margin:0 0 0.8rem;color:var(--accent)}
+.toc ol{padding-left:1.2rem}
+.toc a{color:var(--accent);text-decoration:none}
+.toc a:hover{text-decoration:underline}
+footer{text-align:center;color:var(--text-muted);font-size:0.8rem;padding:2rem 0;border-top:1px solid var(--border);margin-top:2rem}
+@media(max-width:640px){.container{padding:1rem}.hero{padding:1.5rem}.hero h1{font-size:1.4rem}section{padding:1.2rem}}
+</style>
+</head>
+<body>
+<div class="container">
+
+<div class="hero">
+<h1>🏆 GoldSignalBacktester</h1>
+<p class="subtitle">Expert Advisor MQ5 — Backtesting signaux Telegram Gold</p>
+<span class="version">V1.0.0</span>
+<p style="margin-top:1rem;color:var(--text-muted);font-size:0.9rem">
+Spread &bull; Slippage &bull; SL Configurable &bull; BE &bull; Gain Fixe &bull; TP_TRIGGER &bull; Rapport par Channel
+</p>
+</div>
+
+<div class="toc">
+<h3>Table des matières</h3>
+<ol>
+<li><a href="#overview">Vue d'ensemble</a></li>
+<li><a href="#install">Installation</a></li>
+<li><a href="#params">Paramètres</a></li>
+<li><a href="#scenarios">Scénarios d'exécution</a></li>
+<li><a href="#be">Break Even (BE)</a></li>
+<li><a href="#tpfixed">Gain Fixe (TP_FIXED)</a></li>
+<li><a href="#tptrigger">TP_TRIGGER</a></li>
+<li><a href="#sl">Stop Loss configurable</a></li>
+<li><a href="#spread">Spread &amp; Slippage</a></li>
+<li><a href="#csv">Format CSV attendu</a></li>
+<li><a href="#report">Rapport de backtest</a></li>
+<li><a href="#optimisation">Optimisation Strategy Tester</a></li>
+</ol>
+</div>
+
+<!-- 1. Vue d'ensemble -->
+<section id="overview">
+<h2>1. Vue d'ensemble</h2>
+<p>Cet Expert Advisor lit des fichiers CSV contenant des signaux de trading gold (exportés par Gold Signal Extractor) et les exécute dans le Strategy Tester de MT5.</p>
+
+<div class="flow">CSV Files (dossier MQL5/Files/)
+ &darr;
+<span style="color:var(--cyan)">GoldSignalBacktester.mq5</span>
+ &darr;
+Lecture des signaux → Tri par date
+ &darr;
+Pour chaque signal :
+  ├─ Vérifier filtres (horaire, spread, quotidien)
+  ├─ Déterminer le scénario (PU-S1, PU-S2, CAS1, CAS2-a, CAS2-b, QA)
+  ├─ Exécuter (MARKET ou LIMIT)
+  └─ Enregistrer le trade
+ &darr;
+Gestion continue (chaque tick) :
+  ├─ Break Even (BE)
+  ├─ Gain Fixe (TP_FIXED)
+  ├─ TP_TRIGGER (annulation pending)
+  ├─ Expiration ordres
+  └─ Limite quotidienne
+ &darr;
+Rapport final par channel</div>
+
+<h3>Objectif</h3>
+<p>Comparer les channels Telegram pour trouver les meilleurs à utiliser dans le bot de copy trading (GZL TradingBot V9.0.0).</p>
+</section>
+
+<!-- 2. Installation -->
+<section id="install">
+<h2>2. Installation</h2>
+<ol>
+<li>Copier <code>GoldSignalBacktester.mq5</code> dans <code>MQL5/Experts/</code></li>
+<li>Copier les fichiers CSV dans <code>MQL5/Files/</code></li>
+<li>Compiler dans MetaEditor</li>
+<li>Attacher au chart XAUUSD (ou XAUUSDm sur Exness)</li>
+<li>Ouvrir le Strategy Tester → sélectionner l'EA</li>
+</ol>
+
+<div class="highlight">
+<strong>Important :</strong> Le symbole du chart doit correspondre aux prix du CSV. Si les CSV contiennent des prix spot (XAUUSD), utilisez le chart XAUUSD. Si Exness, utilisez XAUUSDm.
+</div>
+</section>
+
+<!-- 3. Paramètres -->
+<section id="params">
+<h2>3. Paramètres</h2>
+
+<h3>3.1 Lots &amp; Exécution</h3>
+<table>
+<tr><th>Paramètre</th><th>Type</th><th>Défaut</th><th>Description</th></tr>
+<tr><td><code>LotTotal</code></td><td>double</td><td>0.02</td><td>Lot total pour signaux zone (split 50/50)</td></tr>
+<tr><td><code>LotUnique</code></td><td>double</td><td>0.01</td><td>Lot pour prix unique et Quick Alert</td></tr>
+<tr><td><code>MaxPositions</code></td><td>int</td><td>3</td><td>Positions max simultanées</td></tr>
+<tr><td><code>MaxSpreadPoints</code></td><td>double</td><td>50</td><td>Spread max autorisé (points)</td></tr>
+<tr><td><code>Slippage</code></td><td>int</td><td>20</td><td>Slippage (points)</td></tr>
+<tr><td><code>OrderExpiryMin</code></td><td>int</td><td>240</td><td>Expiration ordres LIMIT (minutes)</td></tr>
+</table>
+
+<h3>3.2 Break Even</h3>
+<table>
+<tr><th>Paramètre</th><th>Type</th><th>Défaut</th><th>Description</th></tr>
+<tr><td><code>BE_Enabled</code></td><td>bool</td><td>true</td><td>Activer le Break Even</td></tr>
+<tr><td><code>PNL_Trigger</code></td><td>double</td><td>8.0</td><td>PnL min (points prix) pour déclencher BE</td></tr>
+<tr><td><code>BE_CancelPending</code></td><td>bool</td><td>true</td><td>Annuler ordres pending au BE</td></tr>
+</table>
+
+<h3>3.3 Gain Fixe</h3>
+<table>
+<tr><th>Paramètre</th><th>Type</th><th>Défaut</th><th>Description</th></tr>
+<tr><td><code>TPFixed_Enabled</code></td><td>bool</td><td>true</td><td>Activer le gain fixe</td></tr>
+<tr><td><code>TPFixed_GainUSD</code></td><td>double</td><td>15.0</td><td>Gain cible par position (points prix)</td></tr>
+<tr><td><code>TPFixed_CloseAll</code></td><td>bool</td><td>true</td><td>Fermer toutes les positions au gain fixe</td></tr>
+</table>
+
+<h3>3.4 TP_TRIGGER</h3>
+<table>
+<tr><th>Paramètre</th><th>Type</th><th>Défaut</th><th>Description</th></tr>
+<tr><td><code>TPTrigger_Enabled</code></td><td>bool</td><td>true</td><td>Activer TP_TRIGGER</td></tr>
+<tr><td><code>TPTrigger_Index</code></td><td>int</td><td>2</td><td>Index du TP déclencheur (0-based, 2 = 3ème TP)</td></tr>
+</table>
+
+<h3>3.5 Stop Loss</h3>
+<table>
+<tr><th>Paramètre</th><th>Type</th><th>Défaut</th><th>Description</th></tr>
+<tr><td><code>SL_Custom</code></td><td>bool</td><td>true</td><td>Activer SL personnalisé</td></tr>
+<tr><td><code>SL_PrixUnique</code></td><td>double</td><td>15.0</td><td>Distance SL max prix unique (pts)</td></tr>
+<tr><td><code>SL_PlusProche</code></td><td>double</td><td>10.0</td><td>Distance SL zone (pts)</td></tr>
+<tr><td><code>SL_QuickAlert</code></td><td>double</td><td>10.0</td><td>SL provisoire Quick Alert (pts)</td></tr>
+<tr><td><code>RR_Ratio</code></td><td>double</td><td>1.5</td><td>Risk/Reward pour TP auto si SL seul</td></tr>
+</table>
+
+<h3>3.6 Filtres</h3>
+<table>
+<tr><th>Paramètre</th><th>Type</th><th>Défaut</th><th>Description</th></tr>
+<tr><td><code>TimeFilter</code></td><td>bool</td><td>true</td><td>Activer le filtre horaire</td></tr>
+<tr><td><code>StartHour</code></td><td>int</td><td>3</td><td>Heure début trading (UTC)</td></tr>
+<tr><td><code>EndHour</code></td><td>int</td><td>20</td><td>Heure fin trading (UTC)</td></tr>
+<tr><td><code>DailyProfitLimit</code></td><td>double</td><td>30.0</td><td>PnL quotidien max ($)</td></tr>
+<tr><td><code>DailyLimit_Enabled</code></td><td>bool</td><td>true</td><td>Activer la limite quotidienne</td></tr>
+</table>
+
+<h3>3.7 Spread &amp; Slippage</h3>
+<table>
+<tr><th>Paramètre</th><th>Type</th><th>Défaut</th><th>Description</th></tr>
+<tr><td><code>Spread_Filter</code></td><td>bool</td><td>true</td><td>Filtrer les signaux par spread</td></tr>
+<tr><td><code>Slippage_Enabled</code></td><td>bool</td><td>true</td><td>Appliquer le slippage</td></tr>
+<tr><td><code>Spread_Cost</code></td><td>double</td><td>0.0</td><td>Coût spread ajouté au SL (pts)</td></tr>
+</table>
+
+<h3>3.8 Scénarios</h3>
+<table>
+<tr><th>Paramètre</th><th>Type</th><th>Défaut</th><th>Description</th></tr>
+<tr><td><code>EnablePrixUnique</code></td><td>bool</td><td>true</td><td>Activer Prix Unique (S1/S2)</td></tr>
+<tr><td><code>EnableZone</code></td><td>bool</td><td>true</td><td>Activer Zone (CAS 1/2-a/2-b)</td></tr>
+<tr><td><code>EnableQuickAlert</code></td><td>bool</td><td>true</td><td>Activer Quick Alert</td></tr>
+</table>
+</section>
+
+<!-- 4. Scénarios -->
+<section id="scenarios">
+<h2>4. Scénarios d'exécution</h2>
+
+<h3>4.1 Prix Unique — S1 (MARKET)</h3>
+<div class="signal-box">Condition BUY : SL &lt; prix &lt; entry
+Condition SELL : entry &lt; prix &lt; SL
+Action : MARKET @ prix actuel
+Lot : LotUnique</div>
+
+<h3>4.2 Prix Unique — S2 (LIMIT)</h3>
+<div class="signal-box">Condition BUY : entry &lt; prix &lt; TP1
+Condition SELL : TP1 &lt; prix &lt; entry
+Action : LIMIT @ entry
+Lot : LotUnique</div>
+
+<h3>4.3 CAS 1 — Prix dans la zone</h3>
+<div class="signal-box">Condition : zone_low &le; prix &le; zone_high
+Action :
+  50% lot &rarr; MARKET @ prix actuel
+  50% lot &rarr; LIMIT @ (zone + SL) / 2
+Lot : LotTotal / 2</div>
+
+<h3>4.4 CAS 2-a — Prix entre TP1 et zone</h3>
+<div class="signal-box">Condition BUY : zone_high &lt; prix &lt; TP1
+Condition SELL : TP1 &lt; prix &lt; zone_low
+Action :
+  50% lot &rarr; MARKET @ prix actuel
+  50% lot &rarr; LIMIT @ l'autre bout de la zone
+Lot : LotTotal / 2</div>
+
+<h3>4.5 CAS 2-b — Prix entre TP1 et TP2</h3>
+<div class="signal-box">Condition BUY : TP1 &lt; prix &lt; TP2
+Condition SELL : TP2 &lt; prix &lt; TP1
+Action :
+  50% lot &rarr; LIMIT @ zone_edge
+  50% lot &rarr; LIMIT @ zone_opposite
+Lot : LotTotal / 2</div>
+
+<h3>4.6 Quick Alert</h3>
+<div class="signal-box">Condition : Signal sans TP ni SL (ex: BUY 4512)
+Action : MARKET ou LIMIT
+SL : provisoire (SL_QuickAlert pts)
+TP : auto (RR_Ratio)
+Lot : LotUnique</div>
+</section>
+
+<!-- 5. BE -->
+<section id="be">
+<h2>5. Break Even (BE)</h2>
+<p>Quand le PnL de la <strong>pire position</strong> atteint <code>PNL_Trigger</code> points :</p>
+
+<div class="flow">PNL min(positions) &ge; PNL_Trigger ?
+ ├─ OUI → BE activé
+ │   ├─ 1 position : SL @ entry_price
+ │   ├─ 2 positions : SL @ (entry1 + entry2) / 2
+ │   ├─ Annuler ordres pending
+ │   └─ target_gain = TP_FIXED_GAIN &times; N positions
+ └─ NON → continuer</div>
+
+<div class="highlight success">
+<strong>Whitelist BE :</strong> Seuls les rôles principaux déclenchent le BE (market_single, limit_single, market_cas1, market_cas2, limit_1, quick_market, quick_limit_filled, merge_limit). Les ordres pending (limit_2, limit_cas1, limit_cas2) ne déclenchent jamais le BE.
+</div>
+</section>
+
+<!-- 6. TP_FIXED -->
+<section id="tpfixed">
+<h2>6. Gain Fixe (TP_FIXED)</h2>
+<p>Après le BE, le bot surveille le PnL total. Quand il atteint <code>TP_FIXED_GAIN_USD &times; N positions</code>, toutes les positions sont fermées manuellement.</p>
+
+<div class="signal-box">BE activé avec 2 positions
+target_gain = 15.0 &times; 2 = 30.0$
+PnL total &ge; 30.0$ → FERMETURE MANUELLE</div>
+
+<div class="highlight">
+<strong>Différence avec le broker TP :</strong> Le TP_FIXED ferme les positions dès que le gain est atteint, même si le prix n'a pas touché le TP du broker. Cela permet de sécuriser les gains plus tôt.
+</div>
+</section>
+
+<!-- 7. TP_TRIGGER -->
+<section id="tptrigger">
+<h2>7. TP_TRIGGER</h2>
+<p>Quand le prix atteint le 3ème TP (ou le 2ème, ou le 1er si moins de 3 TPs) et qu'aucune position n'est ouverte, les ordres pending sont annulés.</p>
+
+<div class="flow">Prix atteint TP[TPTrigger_Index] ?
+ ├─ OUI → Annuler TOUS les ordres pending
+ └─ NON → continuer</div>
+
+<div class="highlight warn">
+<strong>Cas typique :</strong> CAS 2-b avec 2 LIMIT. Le prix passe directement au TP3 sans remplir aucun ordre. Les LIMIT sont annulées car le mouvement est terminé.
+</div>
+</section>
+
+<!-- 8. SL -->
+<section id="sl">
+<h2>8. Stop Loss configurable</h2>
+<p>Le SL peut être personnalisé avec des booléens d'activation :</p>
+
+<table>
+<tr><th>Paramètre</th><th>Booléen</th><th>Effet</th></tr>
+<tr><td><code>SL_Custom</code></td><td><span class="badge badge-green">ON</span></td><td>SL calculé selon les distances max</td></tr>
+<tr><td><code>SL_Custom</code></td><td><span class="badge badge-red">OFF</span></td><td>SL pris directement du signal CSV</td></tr>
+</table>
+
+<h3>Calcul du SL</h3>
+<div class="signal-box">SL_Custom = true :
+  Prix Unique → SL = entry &plusmn; SL_PrixUnique pts
+  Zone → SL = entry &plusmn; SL_PlusProche pts
+  Quick Alert → SL = entry &plusmn; SL_QuickAlert pts
+
+SL_Custom = false :
+  SL = valeur du CSV (telle quelle)
+
+Spread_Cost > 0 :
+  SL ajusté + Spread_Cost pts (pour couvrir le coût du spread)</div>
+</section>
+
+<!-- 9. Spread & Slippage -->
+<section id="spread">
+<h2>9. Spread &amp; Slippage</h2>
+
+<h3>9.1 Spread Filter</h3>
+<p>Quand <code>Spread_Filter = true</code>, les signaux dont le spread dépasse <code>MaxSpreadPoints</code> sont ignorés.</p>
+
+<h3>9.2 Slippage</h3>
+<p>Le slippage est appliqué via <code>trade.SetDeviationInPoints(Slippage)</code>. MT5 simule le slippage dans le Strategy Tester.</p>
+
+<h3>9.3 Spread Cost</h3>
+<p>Quand <code>Spread_Cost > 0</code>, le SL est ajusté pour couvrir le coût du spread :</p>
+<div class="signal-box">BUY : SL = SL - Spread_Cost (plus bas)
+SELL : SL = SL + Spread_Cost (plus haut)</div>
+
+<div class="highlight warn">
+<strong>Recommandation :</strong> Pour un backtesting réaliste, activez Spread_Filter avec MaxSpreadPoints=50 et Spread_Cost=5 pour couvrir le coût réel du spread sur Exness.
+</div>
+</section>
+
+<!-- 10. Format CSV -->
+<section id="csv">
+<h2>10. Format CSV attendu</h2>
+
+<div class="signal-box">datetime,direction,zone_low,zone_high,sl,tp1,tp2,tp3
+2026-07-01 08:15,BUY,3245.00,3245.00,3230.00,3255.00,3265.00,3275.00
+2026-07-01 10:30,SELL,3255.00,3265.00,3280.00,3240.00,3230.00,
+2026-07-01 14:00,BUY,3242.00,3242.00,3225.00,3255.00,,,</div>
+
+<table>
+<tr><th>Colonne</th><th>Obligatoire</th><th>Description</th></tr>
+<tr><td><code>datetime</code></td><td>Oui</td><td>Date et heure (YYYY-MM-DD HH:MM)</td></tr>
+<tr><td><code>direction</code></td><td>Oui</td><td>BUY ou SELL</td></tr>
+<tr><td><code>zone_low</code></td><td>Oui</td><td>Basse zone (= zone_high si prix unique)</td></tr>
+<tr><td><code>zone_high</code></td><td>Oui</td><td>Haute zone (= zone_low si prix unique)</td></tr>
+<tr><td><code>sl</code></td><td>Non</td><td>Stop Loss (0 = auto-généré)</td></tr>
+<tr><td><code>tp1</code>..tpN</td><td>Non</td><td>Take Profits (dynamique)</td></tr>
+</table>
+
+<div class="highlight success">
+<strong>Nom du fichier :</strong> Le nom du CSV est utilisé comme nom du channel dans le rapport. Ex: <code>Gold_Signals_VIP_1847293641.csv</code> → Channel "Gold_Signals_VIP_1847293641".
+</div>
+</section>
+
+<!-- 11. Rapport -->
+<section id="report">
+<h2>11. Rapport de backtest</h2>
+
+<p>Le rapport est généré automatiquement à la fin du backtest et sauvegardé dans <code>BacktestReport.txt</code>.</p>
+
+<div class="signal-box">═══════════════════════════════════════════════════
+  GOLD SIGNAL BACKTESTER — RAPPORT FINAL
+═══════════════════════════════════════════════════
+
+Signaux chargés: 120
+Signaux exécutés: 95
+
+───────────────────────────────────────────────────
+Channel: Gold_Signals_VIP_1847293641.csv
+  Signaux analysés: 45
+  Signaux exécutés: 38
+  Trades: 38
+  Wins: 27 (71.1%)
+  Losses: 8
+  BE: 3
+  PnL total: +245.50$
+  Max Drawdown: -32.00$
+  Profit Factor: 2.14
+  TP_FIXED: 25
+  TP_TRIGGER: 3
+  DAILY_LIMIT: 1
+
+───────────────────────────────────────────────────
+Channel: XAUUSD_Scalping_1523847562.csv
+  Signaux analysés: 30
+  Signaux exécutés: 24
+  ...
+
+═══════════════════════════════════════════════════
+  RÉSUMÉ GLOBAL
+═══════════════════════════════════════════════════
+  PnL total: +425.50$
+  Channels analysés: 5
+
+  CLASSEMENT:
+  🥇 Gold_Signals_VIP | PnL=+245.50$ | Trades=38
+  🥈 XAUUSD_Scalping | PnL=+180.00$ | Trades=24
+  🥉 Trading_Gold_Pro | PnL=+60.00$ | Trades=15</div>
+</section>
+
+<!-- 12. Optimisation -->
+<section id="optimisation">
+<h2>12. Optimisation Strategy Tester</h2>
+
+<h3>12.1 Paramètres à optimiser</h3>
+<table>
+<tr><th>Paramètre</th><th>Min</th><th>Max</th><th>Pas</th></tr>
+<tr><td><code>PNL_Trigger</code></td><td>5</td><td>15</td><td>1</td></tr>
+<tr><td><code>TPFixed_GainUSD</code></td><td>10</td><td>30</td><td>5</td></tr>
+<tr><td><code>SL_PrixUnique</code></td><td>10</td><td>25</td><td>5</td></tr>
+<tr><td><code>SL_PlusProche</code></td><td>5</td><td>15</td><td>5</td></tr>
+</table>
+
+<h3>12.2 Méthode recommandée</h3>
+<ol>
+<li>Optimiser d'abord par channel (un seul CSV à la fois)</li>
+<li>Trouver les meilleurs paramètres pour chaque channel</li>
+<li>Comparer les channels avec leurs paramètres optimaux</li>
+<li>Sélectionner le top 2-3 pour le copy trading</li>
+</ol>
+
+<h3>12.3 Métrique de classement</h3>
+<div class="signal-box">Score = 0.35 &times; WinRate + 0.20 &times; min(RR, 50) + 0.15 &times; Sharpe + 0.10 &times; Volume + 0.20 &times; Consistance</div>
+</section>
+
+<footer>
+GoldSignalBacktester V1.0.0 — GZL TradingBot — 2026
+</footer>
+
+</div>
+</body>
+</html>
