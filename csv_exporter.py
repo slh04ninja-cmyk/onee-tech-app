@@ -2,7 +2,10 @@
 CSV Exporter — Exporte les signaux de trading par channel au format CSV pour MQ5/MT5.
 
 Format CSV :
-  datetime,direction,entry,zone_low,zone_high,sl,tp1,tp2,tp3,tp4,tp5,tp6
+  datetime,direction,zone_low,zone_high,sl,tp1,tp2,...,tpN
+
+- zone_low = zone_high pour les signaux à prix unique
+- Colonnes TP dynamiques selon le signal avec le plus de TPs du channel
 
 Chaque channel génère un fichier séparé nommé :
   {channel_name}_{channel_id}.csv
@@ -19,16 +22,23 @@ from pathlib import Path
 from signal_parser import TradeSignal
 
 
-# Nombre max de TPs dans le CSV (colonnes tp1..tpN)
-MAX_TPS = 6
-
-
 def _sanitize_filename(name: str) -> str:
     """Nettoie un nom de channel pour l'utiliser comme nom de fichier."""
-    # Garder alphanumériques, espaces, tirets, underscores
     clean = re.sub(r'[^\w\s\-]', '', name)
     clean = re.sub(r'\s+', '_', clean.strip())
-    return clean[:50]  # Limiter la longueur
+    return clean[:50]
+
+
+def _get_max_tps(signals: List[TradeSignal], pair_filter: str = "") -> int:
+    """Trouve le nombre max de TPs parmi les signaux TRADE filtrés."""
+    max_tp = 0
+    for sig in signals:
+        if sig.signal_type != "TRADE":
+            continue
+        if pair_filter and sig.pair.upper() != pair_filter.upper():
+            continue
+        max_tp = max(max_tp, len(sig.tps))
+    return max_tp
 
 
 def signals_to_csv(signals: List[TradeSignal], channel_name: str,
@@ -45,12 +55,17 @@ def signals_to_csv(signals: List[TradeSignal], channel_name: str,
     Returns:
         Contenu CSV sous forme de string
     """
+    # Nombre dynamique de colonnes TP
+    max_tps = _get_max_tps(signals, pair_filter)
+    if max_tps == 0:
+        max_tps = 1  # Au moins tp1 même si aucun TP
+
     output = io.StringIO()
     writer = csv.writer(output)
 
-    # Header
-    header = ["datetime", "direction", "entry", "zone_low", "zone_high", "sl"]
-    for i in range(1, MAX_TPS + 1):
+    # Header : pas de "entry", zone_low/zone_high uniquement
+    header = ["datetime", "direction", "zone_low", "zone_high", "sl"]
+    for i in range(1, max_tps + 1):
         header.append(f"tp{i}")
     writer.writerow(header)
 
@@ -72,12 +87,7 @@ def signals_to_csv(signals: List[TradeSignal], channel_name: str,
         # Direction
         direction = sig.direction or ""
 
-        # Entry (milieu de zone)
-        entry = ""
-        if sig.entry is not None:
-            entry = f"{sig.entry:.2f}"
-
-        # Zone
+        # Zone : prix unique → zone_low = zone_high = entry
         zone_low = ""
         zone_high = ""
         if sig.zone_low is not None:
@@ -90,15 +100,15 @@ def signals_to_csv(signals: List[TradeSignal], channel_name: str,
         if sig.sl is not None:
             sl = f"{sig.sl:.2f}"
 
-        # TPs (max 6)
+        # TPs dynamiques (max_tps colonnes)
         tp_values = []
-        for i in range(MAX_TPS):
+        for i in range(max_tps):
             if i < len(sig.tps):
                 tp_values.append(f"{sig.tps[i]:.2f}")
             else:
                 tp_values.append("")
 
-        row = [dt_str, direction, entry, zone_low, zone_high, sl] + tp_values
+        row = [dt_str, direction, zone_low, zone_high, sl] + tp_values
         writer.writerow(row)
 
     return output.getvalue()
@@ -109,13 +119,6 @@ def export_channel_csv(signals: List[TradeSignal], channel_name: str,
                        pair_filter: str = "XAUUSD") -> str:
     """
     Exporte les signaux d'un channel dans un fichier CSV.
-
-    Args:
-        signals: Liste de TradeSignal
-        channel_name: Nom du channel
-        channel_id: ID Telegram
-        output_dir: Répertoire de sortie
-        pair_filter: Filtrer sur cette paire
 
     Returns:
         Chemin du fichier CSV créé
@@ -138,10 +141,6 @@ def create_zip_from_channels(channel_signals: Dict[int, dict],
     """
     Crée un ZIP contenant un CSV par channel.
 
-    Args:
-        channel_signals: {channel_id: {"name": str, "signals": [TradeSignal]}}
-        pair_filter: Filtrer sur cette paire
-
     Returns:
         Contenu du ZIP en bytes
     """
@@ -157,7 +156,6 @@ def create_zip_from_channels(channel_signals: Dict[int, dict],
 
             csv_content = signals_to_csv(signals, ch_name, ch_id, pair_filter)
 
-            # Vérifier qu'il y a au moins une ligne de données (pas juste le header)
             lines = csv_content.strip().split("\n")
             if len(lines) <= 1:
                 continue
@@ -174,7 +172,7 @@ def get_export_summary(channel_signals: Dict[int, dict],
     Retourne un résumé des exports (pour affichage UI).
 
     Returns:
-        Liste de dicts avec: channel_name, channel_id, total_signals, filtered_signals, filename
+        Liste de dicts avec: channel_name, channel_id, total_signals, filtered_signals, filename, max_tps
     """
     summary = []
 
@@ -182,12 +180,13 @@ def get_export_summary(channel_signals: Dict[int, dict],
         ch_name = data.get("name", f"channel_{ch_id}")
         signals = data.get("signals", [])
 
-        # Signaux TRADE uniquement + filtre paire
         filtered = [
             s for s in signals
             if s.signal_type == "TRADE"
             and (not pair_filter or s.pair.upper() == pair_filter.upper())
         ]
+
+        max_tps = max((len(s.tps) for s in filtered), default=0)
 
         filename = f"{_sanitize_filename(ch_name)}_{ch_id}.csv"
 
@@ -196,6 +195,7 @@ def get_export_summary(channel_signals: Dict[int, dict],
             "channel_id": ch_id,
             "total_signals": len(signals),
             "filtered_signals": len(filtered),
+            "max_tps": max_tps,
             "filename": filename,
         })
 
