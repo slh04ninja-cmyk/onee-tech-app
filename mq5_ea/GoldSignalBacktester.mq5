@@ -232,17 +232,14 @@ void OnTick()
 int LoadAllCSV()
 {
    int total = 0;
-   string folder = InpCSV_Folder;
-   if(folder == "")
-      folder = TerminalInfoString(TERMINAL_DATA_PATH) + "\\MQL5\\Files\\";
-
-   string search = folder + "*.csv";
    string filename;
-   long handle = FileFindFirst(search, filename);
+
+   // FileFindFirst cherche dans MQL5/Files/ automatiquement
+   long handle = FileFindFirst("*.csv", filename);
 
    if(handle == INVALID_HANDLE)
    {
-      Print("❌ Aucun CSV trouvé dans: ", folder);
+      Print("Aucun CSV trouve dans MQL5/Files/");
       return 0;
    }
 
@@ -251,9 +248,9 @@ int LoadAllCSV()
       if(InpCSV_Prefix != "" && StringFind(filename, InpCSV_Prefix) < 0)
          continue;
 
-      int count = LoadCSV(folder + filename, filename);
+      int count = LoadCSV(filename);
       total += count;
-      Print("📄 ", filename, " → ", count, " signaux");
+      Print(filename, " -> ", count, " signaux");
    }
    while(FileFindNext(handle, filename));
 
