@@ -1131,62 +1131,17 @@ void ManageActiveTrades()
          continue;
       }
 
-      // === BE (en points de prix, pas en dollars) ===
-      if(InpBE_Enabled && !g_active[i].be_activated && open_count > 0)
+      // === BE (PnL en dollars) ===
+      if(InpBE_Enabled && !g_active[i].be_activated && min_pnl >= InpPNL_Trigger)
       {
-         // Calculer le prix moyen d'entrée
-         double avg_entry = 0;
-         int entry_count = 0;
-         for(int t = 0; t < ArraySize(g_active[i].tickets); t++)
-         {
-            ulong ticket = g_active[i].tickets[t];
-            if(PositionSelectByTicket(ticket))
-            {
-               avg_entry += PositionGetDouble(POSITION_PRICE_OPEN);
-               entry_count++;
-            }
-         }
-         if(entry_count > 0)
-            avg_entry /= entry_count;
-
-         double current = GetCurrentPrice(g_active[i].signal.direction);
-         double price_move = 0;
-         if(g_active[i].signal.direction == "BUY")
-            price_move = current - avg_entry;
-         else
-            price_move = avg_entry - current;
-
-         if(price_move >= InpPNL_Trigger)
-         {
-            ApplyBE(i);
-         }
+         ApplyBE(i);
       }
 
-      // === TP_FIXED (en points de prix, pas en dollars) ===
+      // === TP_FIXED (PnL en dollars) ===
       if(InpTPFixed_Enabled && g_active[i].be_activated)
       {
-         double avg_entry = 0;
-         int entry_count = 0;
-         for(int t = 0; t < ArraySize(g_active[i].tickets); t++)
-         {
-            ulong ticket = g_active[i].tickets[t];
-            if(PositionSelectByTicket(ticket))
-            {
-               avg_entry += PositionGetDouble(POSITION_PRICE_OPEN);
-               entry_count++;
-            }
-         }
-         if(entry_count > 0)
-            avg_entry /= entry_count;
-
-         double current = GetCurrentPrice(g_active[i].signal.direction);
-         double price_move = 0;
-         if(g_active[i].signal.direction == "BUY")
-            price_move = current - avg_entry;
-         else
-            price_move = avg_entry - current;
-
-         if(price_move >= g_active[i].target_gain)
+         double target = g_active[i].target_gain;
+         if(total_pnl >= target)
          {
             CloseTrade(i, "TP_FIXED");
             continue;
