@@ -63,8 +63,8 @@ def signals_to_csv(signals: List[TradeSignal], channel_name: str,
     output = io.StringIO()
     writer = csv.writer(output)
 
-    # Header : pas de "entry", zone_low/zone_high uniquement
-    header = ["datetime", "direction", "zone_low", "zone_high", "sl"]
+    # Header : entry = zone_low (ou milieu de zone pour signaux à prix unique)
+    header = ["datetime", "direction", "entry", "zone_low", "zone_high", "sl"]
     for i in range(1, max_tps + 1):
         header.append(f"tp{i}")
     writer.writerow(header)
@@ -87,6 +87,11 @@ def signals_to_csv(signals: List[TradeSignal], channel_name: str,
         # Direction
         direction = sig.direction or ""
 
+        # Entry : milieu de zone (ou prix unique)
+        entry = ""
+        if sig.entry is not None:
+            entry = f"{sig.entry:.2f}"
+
         # Zone : prix unique → zone_low = zone_high = entry
         zone_low = ""
         zone_high = ""
@@ -108,7 +113,7 @@ def signals_to_csv(signals: List[TradeSignal], channel_name: str,
             else:
                 tp_values.append("")
 
-        row = [dt_str, direction, zone_low, zone_high, sl] + tp_values
+        row = [dt_str, direction, entry, zone_low, zone_high, sl] + tp_values
         writer.writerow(row)
 
     return output.getvalue()

@@ -106,6 +106,7 @@ struct SignalData
 {
    datetime    dt;           // Date/heure du signal
    string      direction;    // BUY / SELL
+   double      entry;        // Prix d'entrée (depuis CSV)
    double      zone_low;     // Basse zone
    double      zone_high;    // Haute zone
    double      sl;           // Stop Loss
@@ -265,9 +266,9 @@ int LoadAllCSV()
 //+------------------------------------------------------------------+
 //| Charger un fichier CSV                                           |
 //+------------------------------------------------------------------+
-int LoadCSV(string filepath, string filename)
+int LoadCSV(string filename)
 {
-   int handle = FileOpen(filepath, FILE_READ | FILE_CSV | FILE_ANSI, ',');
+   int handle = FileOpen(filename, FILE_READ | FILE_CSV | FILE_ANSI, ',');
    if(handle == INVALID_HANDLE)
    {
       Print("❌ Impossible d'ouvrir: ", filepath);
@@ -281,8 +282,8 @@ int LoadCSV(string filepath, string filename)
    StringSplit(line, ',', header);
 
    // Trouver les index des colonnes
-   int idx_datetime = -1, idx_direction = -1, idx_zone_low = -1;
-   int idx_zone_high = -1, idx_sl = -1;
+   int idx_datetime = -1, idx_direction = -1, idx_entry = -1;
+   int idx_zone_low = -1, idx_zone_high = -1, idx_sl = -1;
    int idx_tps[];
 
    for(int i = 0; i < ArraySize(header); i++)
@@ -293,6 +294,7 @@ int LoadCSV(string filepath, string filename)
 
       if(col == "datetime")    idx_datetime = i;
       else if(col == "direction") idx_direction = i;
+      else if(col == "entry")     idx_entry = i;
       else if(col == "zone_low")  idx_zone_low = i;
       else if(col == "zone_high") idx_zone_high = i;
       else if(col == "sl")        idx_sl = i;
@@ -365,7 +367,8 @@ int LoadCSV(string filepath, string filename)
          dt = ParseDateTime(dt_str);
       }
 
-      // Parser zone_low, zone_high, sl
+      // Parser entry, zone_low, zone_high, sl
+      double entry = (idx_entry >= 0 && idx_entry < ArraySize(row_data)) ? StringToDouble(row_data[idx_entry]) : 0;
       double zone_low = StringToDouble(row_data[idx_zone_low]);
       double zone_high = StringToDouble(row_data[idx_zone_high]);
       double sl = (idx_sl >= 0) ? StringToDouble(row_data[idx_sl]) : 0;
@@ -401,6 +404,7 @@ int LoadCSV(string filepath, string filename)
       ArrayResize(g_signals, sz + 1);
       g_signals[sz].dt = dt;
       g_signals[sz].direction = direction;
+      g_signals[sz].entry = entry;
       g_signals[sz].zone_low = zone_low;
       g_signals[sz].zone_high = zone_high;
       g_signals[sz].sl = sl;
@@ -517,6 +521,34 @@ void ProcessSignals()
       // Spread filter
       if(InpSpread_Filter && !CheckSpread(_Symbol))
          continue;
+
+      // Filtre prix : vérifier que le prix est dans une zone logique du signal
+      double current_price = GetCurrentPrice(g_signals[i].direction);
+      if(current_price == 0)
+         continue;
+
+      bool price_valid = false;
+      double sl_val = g_signals[i].sl;
+      double entry_val = g_signals[i].entry;
+
+      if(g_signals[i].direction == "BUY")
+      {
+         double upper = (g_signals[i].tp_count > 0) ? g_signals[i].tps[0] : entry_val + 50;
+         price_valid = (sl_val < current_price && current_price < upper);
+      }
+      else
+      {
+         double lower = (g_signals[i].tp_count > 0) ? g_signals[i].tps[0] : entry_val - 50;
+         price_valid = (lower < current_price && current_price < sl_val);
+      }
+
+      if(!price_valid)
+      {
+         Print("⚠️ Prix hors zone: ", g_signals[i].direction,
+               " entry=", entry_val, " prix=", current_price,
+               " SL=", sl_val);
+         continue;
+      }
 
       // Exécuter le signal
       ExecuteSignal(g_signals[i]);
@@ -778,19 +810,10 @@ void ExecuteZone(const SignalData &sig, double price, string scenario)
 //+------------------------------------------------------------------+
 void ExecuteQuickAlert(const SignalData &sig, double price, string scenario)
 {
-   // Générer SL/TP provisoires (SL_QuickAlert est en $, directement en prix)
-   double sl_price, tp_price;
-
-   if(sig.direction == "BUY")
-   {
-      sl_price = sig.zone_low - InpSL_QuickAlert;
-      tp_price = sig.zone_low + InpSL_QuickAlert * InpRR_Ratio;
-   }
-   else
-   {
-      sl_price = sig.zone_low + InpSL_QuickAlert;
-      tp_price = sig.zone_low - InpSL_QuickAlert * InpRR_Ratio;
-   }
+   // Les SL/TP du CSV sont déjà calculés par le parser Python (offset appliqué côté Python)
+   // Pas de double offset — utiliser directement les valeurs du CSV
+   double sl_price = sig.sl;
+   double tp_price = (sig.tp_count > 0) ? sig.tps[0] : 0;
 
    double lot = InpLotUnique;
    ulong ticket = 0;
@@ -1108,17 +1131,62 @@ void ManageActiveTrades()
          continue;
       }
 
-      // === BE ===
-      if(InpBE_Enabled && !g_active[i].be_activated && min_pnl >= InpPNL_Trigger)
+      // === BE (en points de prix, pas en dollars) ===
+      if(InpBE_Enabled && !g_active[i].be_activated && open_count > 0)
       {
-         ApplyBE(i);
+         // Calculer le prix moyen d'entrée
+         double avg_entry = 0;
+         int entry_count = 0;
+         for(int t = 0; t < ArraySize(g_active[i].tickets); t++)
+         {
+            ulong ticket = g_active[i].tickets[t];
+            if(PositionSelectByTicket(ticket))
+            {
+               avg_entry += PositionGetDouble(POSITION_PRICE_OPEN);
+               entry_count++;
+            }
+         }
+         if(entry_count > 0)
+            avg_entry /= entry_count;
+
+         double current = GetCurrentPrice(g_active[i].signal.direction);
+         double price_move = 0;
+         if(g_active[i].signal.direction == "BUY")
+            price_move = current - avg_entry;
+         else
+            price_move = avg_entry - current;
+
+         if(price_move >= InpPNL_Trigger)
+         {
+            ApplyBE(i);
+         }
       }
 
-      // === TP_FIXED ===
+      // === TP_FIXED (en points de prix, pas en dollars) ===
       if(InpTPFixed_Enabled && g_active[i].be_activated)
       {
-         double target = g_active[i].target_gain;
-         if(total_pnl >= target)
+         double avg_entry = 0;
+         int entry_count = 0;
+         for(int t = 0; t < ArraySize(g_active[i].tickets); t++)
+         {
+            ulong ticket = g_active[i].tickets[t];
+            if(PositionSelectByTicket(ticket))
+            {
+               avg_entry += PositionGetDouble(POSITION_PRICE_OPEN);
+               entry_count++;
+            }
+         }
+         if(entry_count > 0)
+            avg_entry /= entry_count;
+
+         double current = GetCurrentPrice(g_active[i].signal.direction);
+         double price_move = 0;
+         if(g_active[i].signal.direction == "BUY")
+            price_move = current - avg_entry;
+         else
+            price_move = avg_entry - current;
+
+         if(price_move >= g_active[i].target_gain)
          {
             CloseTrade(i, "TP_FIXED");
             continue;
