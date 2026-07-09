@@ -522,35 +522,7 @@ void ProcessSignals()
       if(InpSpread_Filter && !CheckSpread(_Symbol))
          continue;
 
-      // Filtre prix : vérifier que le prix est dans une zone logique du signal
-      double current_price = GetCurrentPrice(g_signals[i].direction);
-      if(current_price == 0)
-         continue;
-
-      bool price_valid = false;
-      double sl_val = g_signals[i].sl;
-      double entry_val = g_signals[i].entry;
-
-      if(g_signals[i].direction == "BUY")
-      {
-         double upper = (g_signals[i].tp_count > 0) ? g_signals[i].tps[0] : entry_val + 50;
-         price_valid = (sl_val < current_price && current_price < upper);
-      }
-      else
-      {
-         double lower = (g_signals[i].tp_count > 0) ? g_signals[i].tps[0] : entry_val - 50;
-         price_valid = (lower < current_price && current_price < sl_val);
-      }
-
-      if(!price_valid)
-      {
-         Print("⚠️ Prix hors zone: ", g_signals[i].direction,
-               " entry=", entry_val, " prix=", current_price,
-               " SL=", sl_val);
-         continue;
-      }
-
-      // Exécuter le signal
+      // Exécuter le signal (filtrage prix fait dans ExecuteSignal via IsCAS1/IsCAS2a/IsCAS2b/IsPrixUnique_S1/S2)
       ExecuteSignal(g_signals[i]);
 
       // Marquer comme traité en avançant l'index
