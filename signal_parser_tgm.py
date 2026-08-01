@@ -177,9 +177,45 @@ def is_spam(text: str) -> bool:
 # NORMALISATION AVEC SUPPRESSION LARGE DES CARACTÈRES INVISIBLES
 # =============================================================
 def normalize_text(text: str) -> str:
-    """Nettoie le texte : supprime emojis, convertit superscripts, remplace séparateurs et parenthèses."""
-    # 0. Supprimer les caractères invisibles (zéro-width, espaces insécables, etc.)
+    """Nettoie le texte : supprime emojis, convertit superscripts, remplace séparateurs et parentheses."""
+    # 0. Supprimer les caracteres invisibles (zero-width, espaces insécables, etc.)
     text = re.sub(r'[\u200b-\u200f\u2028-\u202f\u2060-\u206f\u00a0]', ' ', text)
+
+    # 0b. Convertir les caractères Unicode stylisés (𝐌𝐀𝐓𝐇, 𝗦𝗔𝗡𝗦, 𝙼𝙾𝙽𝙾, etc.) en ASCII
+    MATH_RANGES = [
+        (0x1D400, 0x1D419, 0x41), (0x1D41A, 0x1D433, 0x61),
+        (0x1D434, 0x1D44D, 0x41), (0x1D44E, 0x1D467, 0x61),
+        (0x1D468, 0x1D481, 0x41), (0x1D482, 0x1D49B, 0x61),
+        (0x1D49C, 0x1D4B5, 0x41), (0x1D4B6, 0x1D4CF, 0x61),
+        (0x1D4D0, 0x1D4E9, 0x41), (0x1D4EA, 0x1D503, 0x61),
+        (0x1D504, 0x1D51D, 0x41), (0x1D51E, 0x1D537, 0x61),
+        (0x1D538, 0x1D551, 0x41), (0x1D552, 0x1D56B, 0x61),
+        (0x1D56C, 0x1D585, 0x41), (0x1D586, 0x1D59F, 0x61),
+        (0x1D5A0, 0x1D5B9, 0x41), (0x1D5BA, 0x1D5D3, 0x61),
+        (0x1D5D4, 0x1D5ED, 0x41), (0x1D5EE, 0x1D607, 0x61),
+        (0x1D608, 0x1D621, 0x41), (0x1D622, 0x1D63B, 0x61),
+        (0x1D63C, 0x1D655, 0x41), (0x1D656, 0x1D66F, 0x61),
+        (0x1D670, 0x1D689, 0x41), (0x1D68A, 0x1D6A3, 0x61),
+    ]
+    _styled = []
+    for ch in text:
+        cp = ord(ch)
+        mapped = False
+        for start, end, base in MATH_RANGES:
+            if start <= cp <= end:
+                _styled.append(chr(base + (cp - start)))
+                mapped = True
+                break
+        if not mapped:
+            _styled.append(ch)
+    text = ''.join(_styled)
+
+    # 0c. Remplacer les marqueurs TP (✔, ✔️, ✅) par TP
+    text = re.sub(r'✔️?\s*\.?', 'TP ', text)
+    text = text.replace('✅', 'TP ')
+
+    # 0d. Remplacer les marqueurs SL (🛑, ❌, 🚩, 🛡) par SL
+    text = re.sub(r'[🛑🚩🛡❌]\s*', 'SL ', text)
 
     # 1. Convertir les superscripts
     sup_map = {'¹':'1', '²':'2', '³':'3', '⁴':'4', '⁵':'5',
@@ -187,14 +223,14 @@ def normalize_text(text: str) -> str:
     for sup, digit in sup_map.items():
         text = text.replace(sup, digit)
 
-    # 2. Supprimer les astérisques (utilisés pour le gras)
+    # 2. Supprimer les asterisques (utilises pour le gras)
     text = text.replace('*', '')
 
-    # 3. Remplacer les abréviations
+    # 3. Remplacer les abreviations
     text = text.replace('S/L', 'SL')
     text = re.sub(r'\(SL\)', 'SL', text)
 
-    # 4. Supprimer les parenthèses, crochets, accolades
+    # 4. Supprimer les parentheses, crochets, accolades
     text = re.sub(r'[()\[\]{}]', ' ', text)
 
     # 5. Remplacer les séparateurs de zone et flèches par des espaces (incluant les deux‑points)
