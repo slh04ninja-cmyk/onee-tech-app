@@ -15,13 +15,30 @@ from telethon.tl.types import Channel
 
 import unicodedata as _ud
 from signal_parser import SignalParser, TradeSignal, FormatProfile, normalize_text, is_spam
+import unicodedata as _ud
 from csv_exporter import signals_to_csv, create_zip_from_channels, get_export_summary
 from format_detector import detect_format, FormatProfile as DetectedFormatProfile
 
 
+def _fix_mojibake(text: str) -> str:
+    """Tente de corriger les caractères mojibake (UTF-8 lu comme GBK/CP1252)."""
+    try:
+        # Encoder en latin-1 puis décoder en utf-8 pour inverser la corruption
+        return text.encode('latin-1').decode('utf-8')
+    except (UnicodeDecodeError, UnicodeEncodeError):
+        pass
+    try:
+        return text.encode('cp1252').decode('utf-8')
+    except (UnicodeDecodeError, UnicodeEncodeError):
+        pass
+    return text
+
+
 def normalize_unicode_text(text: str) -> str:
-    """Convertit TOUS les caractères Unicode non-ASCII en texte normal.
-    Couvre : Mathematical Alphanumeric, exposants, indices, symboles, etc."""
+    """Convertit TOUS les caractères Unicode non-ASCII en texte ASCII normalisé."""
+    # D'abord, essayer de corriger le mojibake
+    text = _fix_mojibake(text)
+
     RANGES = [
         (0x1D400, 0x1D419, 0x41), (0x1D41A, 0x1D433, 0x61),
         (0x1D434, 0x1D44D, 0x41), (0x1D44E, 0x1D467, 0x61),
@@ -44,15 +61,14 @@ def normalize_unicode_text(text: str) -> str:
     SYMBOLS = {
         '✖':'X','✓':'v','✔':'v','✗':'x','✘':'x',
         '▲':'+','▼':'-','▶':'>','◀':'<','△':'+','▽':'-',
-        '⬆':'^','⬇':'v','➡':'>','⬅':'<','⬆️':'^','⬇️':'v',
-        '🔴':'[R]','🟢':'[G]','🔵':'[B]','🟡':'[Y]','⚫':'[B]','⚪':'[W]',
+        '⬆':'^','⬇':'v','➡':'>','⬅':'<',
+        '🔴':'[R]','🟢':'[G]','🔵':'[B]','🟡':'[Y]',
         '📉':'v','📈':'^','💹':'^','📊':'#','💎':'#','🏆':'#','🥇':'#1',
         '💰':'$','💵':'$','💲':'$','🔥':'!','⚡':'!','💥':'!',
         '📌':'>','📍':'>','🎯':'@','🚩':'SL','🛡':'SL','⛔':'X',
-        '❌':'X','✅':'v','❎':'x','❗':'!','‼':'!!','❓':'?','❔':'?',
-        '➡️':'>','⬅️':'<','⬆️':'^','⬇️':'v','↪':'>','↩':'<',
+        '❌':'X','✅':'v','❎':'x','❗':'!','‼':'!!',
         '⭐':'*','🌟':'*','✨':'*','💫':'*','🔔':'!','📢':'!',
-        '🚀':'','⚠':'!','💡':'!','🔑':'K','📱':'P',
+        '⚠':'!','💡':'!','🔑':'K','📱':'P',
     }
     result = []
     for ch in text:
@@ -84,6 +100,7 @@ def normalize_unicode_text(text: str) -> str:
         ascii_char = nfkd.encode('ascii', 'ignore').decode('ascii')
         if ascii_char:
             result.append(ascii_char)
+        # else: skip non-ASCII (don't add '?' or garbled chars)
     return ''.join(result)
 
 
