@@ -24,17 +24,17 @@ import re as _re
 
 def _clean_telegram_md(text: str) -> str:
     """Supprime le markdown Telegram (**, __, _, ~~, etc.) du texte."""
-    # Supprimer les balises markdown en gardant le contenu
-    # Bold: **text** ou __text__
+    # Étape 1: Supprimer les paires bien formées
     text = _re.sub(r'\*\*(.+?)\*\*', r'\1', text)
     text = _re.sub(r'__(.+?)__', r'\1', text)
-    # Italic: _text_
-    text = _re.sub(r'(?<!\w)_(.+?)_(?!\w)', r'\1', text)
-    # Strikethrough: ~~text~~
     text = _re.sub(r'~~(.+?)~~', r'\1', text)
-    # Code: `text`
     text = _re.sub(r'`(.+?)`', r'\1', text)
-    # Nettoyer les lignes vides multiples
+    # Étape 2: Supprimer les ** restants (orphelins: ouvrant sans fermant ou vice-versa)
+    text = _re.sub(r'\*{2,}', '', text)
+    # Étape 3: Supprimer les _ orphelins (pas dans les mots)
+    text = _re.sub(r'(?<!\w)_(?!\w)', '', text)
+    text = _re.sub(r'(?<!\w)_(?=\w)', '', text)
+    # Étape 4: Nettoyer les lignes vides multiples
     text = _re.sub(r'\n{3,}', '\n\n', text)
     return text.strip()
 
