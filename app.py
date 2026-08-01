@@ -18,6 +18,45 @@ from signal_parser import SignalParser, TradeSignal, FormatProfile, normalize_te
 from csv_exporter import signals_to_csv, create_zip_from_channels, get_export_summary
 from format_detector import detect_format, FormatProfile as DetectedFormatProfile
 
+import unicodedata as _ud
+
+def normalize_channel_name(name: str) -> str:
+    """Convertit les caractères Unicode stylisés en texte ASCII normalisé."""
+    RANGES = [
+        (0x1D400, 0x1D419, 0x41), (0x1D41A, 0x1D433, 0x61),
+        (0x1D434, 0x1D44D, 0x41), (0x1D44E, 0x1D467, 0x61),
+        (0x1D468, 0x1D481, 0x41), (0x1D482, 0x1D49B, 0x61),
+        (0x1D49C, 0x1D4B5, 0x41), (0x1D4B6, 0x1D4CF, 0x61),
+        (0x1D4D0, 0x1D4E9, 0x41), (0x1D4EA, 0x1D503, 0x61),
+        (0x1D504, 0x1D51D, 0x41), (0x1D51E, 0x1D537, 0x61),
+        (0x1D538, 0x1D551, 0x41), (0x1D552, 0x1D56B, 0x61),
+        (0x1D56C, 0x1D585, 0x41), (0x1D586, 0x1D59F, 0x61),
+        (0x1D5A0, 0x1D5B9, 0x41), (0x1D5BA, 0x1D5D3, 0x61),
+        (0x1D5D4, 0x1D5ED, 0x41), (0x1D5EE, 0x1D607, 0x61),
+        (0x1D608, 0x1D621, 0x41), (0x1D622, 0x1D63B, 0x61),
+        (0x1D63C, 0x1D655, 0x41), (0x1D656, 0x1D66F, 0x61),
+        (0x1D670, 0x1D689, 0x41), (0x1D68A, 0x1D6A3, 0x61),
+    ]
+    result = []
+    for ch in name:
+        cp = ord(ch)
+        if 0x20 <= cp < 0x7F:
+            result.append(ch)
+            continue
+        mapped = False
+        for start, end, base in RANGES:
+            if start <= cp <= end:
+                result.append(chr(base + (cp - start)))
+                mapped = True
+                break
+        if mapped:
+            continue
+        nfkd = _ud.normalize('NFKD', ch)
+        ascii_char = nfkd.encode('ascii', 'ignore').decode('ascii')
+        if ascii_char:
+            result.append(ascii_char)
+    return ''.join(result)
+
 # Charger les variables d'environnement depuis .env
 load_dotenv()
 ENV_API_ID = os.getenv("API_ID", "")
@@ -349,7 +388,7 @@ elif st.session_state.step == "scanning":
                         username = getattr(entity, "username", None)
                         channels.append({
                             "id": entity.id,
-                            "title": entity.title,
+                            "title": normalize_channel_name(entity.title),
                             "username": f"@{username}" if username else "—",
                             "megagroup": entity.megagroup,
                             "likely_trading": is_likely_trading_channel(entity.title)
