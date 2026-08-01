@@ -487,7 +487,7 @@ elif st.session_state.step == "scanning":
                         all_parsed.append(sig)
                         if sig.signal_type == "TRADE" and sig.tps:
                             trade_signals.append(sig)
-                            signal_texts.append(normalize_unicode_text(text))
+                            signal_texts.append(text)  # signal brut, tel quel
                         elif sig.signal_type == "TRADE" and not sig.tps:
                             no_tp += 1
                     else:
