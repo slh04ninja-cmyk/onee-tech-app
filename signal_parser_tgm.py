@@ -643,8 +643,9 @@ class SignalParser:
     def _parse_trade(self, normalized_text: str, timestamp: Optional[datetime] = None) -> Optional[TradeSignal]:
         symbol = _extract_symbol(normalized_text)
         if not symbol:
-            log.debug(f"[PARSING] Symbole non trouvé dans : {normalized_text[:100]}")
-            return None
+            # Défaut à XAUUSD si pas de symbole (bot gold trading)
+            symbol = "XAUUSD"
+            log.debug(f"[PARSING] Symbole non trouvé, défaut XAUUSD : {normalized_text[:100]}")
 
         action = _extract_action(normalized_text)
         if not action:
