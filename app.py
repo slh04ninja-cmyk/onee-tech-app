@@ -19,6 +19,63 @@ from csv_exporter import signals_to_csv, create_zip_from_channels, get_export_su
 from format_detector import detect_format, FormatProfile as DetectedFormatProfile
 
 import unicodedata as _ud
+import re as _re
+
+
+def _clean_telegram_md(text: str) -> str:
+    """Supprime le markdown Telegram (**, __, _, ~~, etc.) du texte."""
+    # Supprimer les balises markdown en gardant le contenu
+    # Bold: **text** ou __text__
+    text = _re.sub(r'\*\*(.+?)\*\*', r'\1', text)
+    text = _re.sub(r'__(.+?)__', r'\1', text)
+    # Italic: _text_
+    text = _re.sub(r'(?<!\w)_(.+?)_(?!\w)', r'\1', text)
+    # Strikethrough: ~~text~~
+    text = _re.sub(r'~~(.+?)~~', r'\1', text)
+    # Code: `text`
+    text = _re.sub(r'`(.+?)`', r'\1', text)
+    # Nettoyer les lignes vides multiples
+    text = _re.sub(r'\n{3,}', '\n\n', text)
+    return text.strip()
+
+
+def _merge_qa_fusion(signal_texts: list) -> list:
+    """Fusionne les signaux QA (Quick Alert) avec le signal complet suivant.
+    Exemple:
+      msg1: GOLD SELL NOW 4080
+      msg2: XAUUSD SELL NOW 4048/4052 TP1... SL...
+    → fusionné en un seul signal"""
+    if len(signal_texts) < 2:
+        return signal_texts
+
+    merged = []
+    skip_next = False
+    for i in range(len(signal_texts)):
+        if skip_next:
+            skip_next = False
+            continue
+        current = signal_texts[i]
+        # Vérifier si le message suivant existe
+        if i + 1 < len(signal_texts):
+            next_msg = signal_texts[i + 1]
+            curr_upper = current.upper().strip()
+            next_upper = next_msg.upper().strip()
+            # Détecter QA: message court avec BUY/SELL + prix, sans TP/SL
+            has_direction_curr = bool(_re.search(r'\b(BUY|SELL)\b', curr_upper))
+            has_tp_curr = bool(_re.search(r'\bTP\b', curr_upper))
+            has_sl_curr = bool(_re.search(r'\bSL\b', curr_upper))
+            has_direction_next = bool(_re.search(r'\b(BUY|SELL)\b', next_upper))
+            has_tp_next = bool(_re.search(r'\bTP\b', next_upper))
+            has_sl_next = bool(_re.search(r'\bSL\b', next_upper))
+            is_qa = has_direction_curr and not has_tp_curr and not has_sl_curr
+            is_full = has_direction_next and (has_tp_next or has_sl_next)
+            if is_qa and is_full:
+                # Fusionner: garder le texte complet du signal
+                merged.append(next_msg)
+                skip_next = True
+                continue
+        merged.append(current)
+    return merged
 
 def normalize_channel_name(name: str) -> str:
     """Convertit les caractères Unicode stylisés en texte ASCII normalisé."""
@@ -497,10 +554,14 @@ elif st.session_state.step == "scanning":
                         **ch,
                         "signal_count": scan["count"],
                     })
+                    # Post-traitement des signaux bruts
+                    raw_texts = scan.get("signal_texts", [])
+                    cleaned_texts = [_clean_telegram_md(t) for t in raw_texts]
+                    merged_texts = _merge_qa_fusion(cleaned_texts)
                     channel_signals[ch["id"]] = {
                         "name": ch["title"],
                         "signals": scan["signals"],
-                        "signal_texts": scan.get("signal_texts", []),
+                        "signal_texts": merged_texts,
                     }
                     # Detect signal format
                     raw_msgs = scan.get("raw_messages", [])
