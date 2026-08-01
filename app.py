@@ -39,41 +39,30 @@ def _clean_telegram_md(text: str) -> str:
     return text.strip()
 
 
+def _is_qa_message(text: str) -> bool:
+    """Détecte un message QA: BUY/SELL + prix, court, sans TP/SL."""
+    upper = text.upper().strip()
+    has_direction = bool(_re.search(r'\b(BUY|SELL)\b', upper))
+    has_tp = bool(_re.search(r'TP\b|TP[0-9_]', upper))
+    has_sl = bool(_re.search(r'\bSL\b|SL[_0-9]', upper))
+    # QA = direction + pas de TP + pas de SL + message court (< 200 chars)
+    return has_direction and not has_tp and not has_sl and len(text) < 200
+
+
 def _merge_qa_fusion(signal_texts: list) -> list:
-    """Fusionne les signaux QA (Quick Alert) avec le signal complet suivant.
-    Exemple:
-      msg1: GOLD SELL NOW 4080          (QA)
-      msg2: XAUUSD SELL NOW 4048/4052   (signal complet)
-              TP1 4043 TP2 4038 ... SL 4060
-    → fusionné en un seul signal: QA d'abord, puis le complet"""
+    """Fusionne les signaux QA avec le signal complet.
+    Ordre dans Telegram: complet d'abord, QA après.
+    On attache le QA au signal complet précédent."""
     if len(signal_texts) < 2:
         return signal_texts
 
     merged = []
-    skip_next = False
-    for i in range(len(signal_texts)):
-        if skip_next:
-            skip_next = False
-            continue
-        current = signal_texts[i]
-        if i + 1 < len(signal_texts):
-            next_msg = signal_texts[i + 1]
-            curr_upper = current.upper().strip()
-            next_upper = next_msg.upper().strip()
-            # TP/SL: match même suivi de _ ou chiffres (TP1, SL_, SL4060...)
-            has_direction_curr = bool(_re.search(r'\b(BUY|SELL)\b', curr_upper))
-            has_tp_curr = bool(_re.search(r'TP\b|TP[0-9_]', curr_upper))
-            has_sl_curr = bool(_re.search(r'\bSL\b|SL[_0-9]', curr_upper))
-            has_direction_next = bool(_re.search(r'\b(BUY|SELL)\b', next_upper))
-            has_tp_next = bool(_re.search(r'TP\b|TP[0-9_]', next_upper))
-            has_sl_next = bool(_re.search(r'\bSL\b|SL[_0-9]', next_upper))
-            is_qa = has_direction_curr and not has_tp_curr and not has_sl_curr
-            is_full = has_direction_next and (has_tp_next or has_sl_next)
-            if is_qa and is_full:
-                merged.append(current + "\n\n" + next_msg)
-                skip_next = True
-                continue
-        merged.append(current)
+    for text in signal_texts:
+        if _is_qa_message(text) and merged:
+            # QA = message court sans TP/SL → fusionner avec le signal précédent
+            merged[-1] = merged[-1] + "\n\n" + text
+        else:
+            merged.append(text)
     return merged
 
 def normalize_channel_name(name: str) -> str:
