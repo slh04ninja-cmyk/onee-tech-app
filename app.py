@@ -336,6 +336,27 @@ elif st.session_state.step == "scanning":
         scan_progress = st.progress(0, text="🔄 Démarrage...")
         scan_log = st.empty()
 
+        # Récupérer tous les channels
+        async def _get_all_channels(api_id_val, api_hash_val):
+            client = TelegramClient("gold_session", api_id_val, api_hash_val)
+            await client.start()
+            try:
+                channels = []
+                async for dialog in client.iter_dialogs():
+                    entity = dialog.entity
+                    if isinstance(entity, Channel):
+                        username = getattr(entity, "username", None)
+                        channels.append({
+                            "id": entity.id,
+                            "title": entity.title,
+                            "username": f"@{username}" if username else "—",
+                            "megagroup": entity.megagroup,
+                            "likely_trading": is_likely_trading_channel(entity.title)
+                        })
+                return channels
+            finally:
+                await client.disconnect()
+
         # Scanner TOUS les channels avec UN SEUL client Telethon
         async def _scan_all_channels(api_id_val, api_hash_val, channel_list, days):
             from datetime import timedelta
