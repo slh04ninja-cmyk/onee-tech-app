@@ -336,105 +336,82 @@ elif st.session_state.step == "scanning":
         scan_progress = st.progress(0, text="🔄 Démarrage...")
         scan_log = st.empty()
 
-        # Récupérer tous les channels
-        async def _get_all_channels(api_id_val, api_hash_val):
-            client = TelegramClient("gold_session", api_id_val, api_hash_val)
-            await client.start()
-            try:
-                channels = []
-                async for dialog in client.iter_dialogs():
-                    entity = dialog.entity
-                    if isinstance(entity, Channel):
-                        username = getattr(entity, "username", None)
-                        channels.append({
-                            "id": entity.id,
-                            "title": entity.title,
-                            "username": f"@{username}" if username else "—",
-                            "megagroup": entity.megagroup,
-                            "likely_trading": is_likely_trading_channel(entity.title)
-                        })
-                return channels
-            finally:
-                await client.disconnect()
-
-        # Scanner un channel pour les signaux
-        async def _scan_one_channel(api_id_val, api_hash_val, channel_id, days):
+        # Scanner TOUS les channels avec UN SEUL client Telethon
+        async def _scan_all_channels(api_id_val, api_hash_val, channel_list, days):
             from datetime import timedelta
             import signal_parser as sp_module
-            import random
-            # Use a unique session per scan to avoid cross-contamination
-            session_name = f"gold_scan_{channel_id}_{random.randint(1000,9999)}"
-            client = TelegramClient(session_name, api_id_val, api_hash_val)
+            from telethon import TelegramClient as _TG
+
+            client = _TG("gold_session", api_id_val, api_hash_val)
             await client.start()
             try:
-                messages = []
-                entity = await client.get_entity(channel_id)
-                ch_title = getattr(entity, 'title', str(channel_id))
-                min_date = datetime.now() - timedelta(days=days)
-                async for message in client.iter_messages(entity, limit=200):
-                    if message.date.replace(tzinfo=None) < min_date:
-                        break
-                    if message.text:
-                        messages.append((message.text, message.date.replace(tzinfo=None)))
-                # Clean up session file after scan
-                try:
-                    import glob
-                    for f in glob.glob(f"{session_name}.session*"):
-                        os.remove(f)
-                except Exception:
-                    pass
+                results = {}
+                for ch in channel_list:
+                    ch_id = ch["id"]
+                    ch_title = ch["title"]
+                    try:
+                        messages = []
+                        entity = await client.get_entity(ch_id)
+                        min_date = datetime.now() - timedelta(days=days)
+                        async for message in client.iter_messages(entity, limit=200):
+                            if message.date.replace(tzinfo=None) < min_date:
+                                break
+                            if message.text:
+                                messages.append((message.text, message.date.replace(tzinfo=None)))
 
-                if not messages:
-                    return {"has_signals": False, "signals": [], "count": 0, "debug": "0 messages fetched"}
+                        if not messages:
+                            results[ch_id] = {"has_signals": False, "signals": [], "count": 0, "signal_texts": [], "raw_messages": [], "total_messages": 0, "all_parsed": 0, "spam": 0, "no_symbol": 0, "no_action": 0, "no_entry": 0, "no_tp": 0, "debug": "0 messages"}
+                            continue
 
-                parser = sp_module.SignalParser()
-                all_parsed = []
-                trade_signals = []
-                signal_texts = []  # raw text of each parsed signal
-                spam_count = 0
-                no_symbol = 0
-                no_action = 0
-                no_entry = 0
-                no_tp = 0
-                for text, ts in messages:
-                    if sp_module.is_spam(text):
-                        spam_count += 1
-                        continue
-                    norm = sp_module.normalize_text(text)
-                    sym = sp_module._extract_symbol(norm)
-                    act = sp_module._extract_action(norm)
-                    sig = parser.parse(text, ts)
-                    if sig:
-                        all_parsed.append(sig)
-                        if sig.signal_type == "TRADE" and sig.tps:
-                            trade_signals.append(sig)
-                            signal_texts.append(text)
-                        elif sig.signal_type == "TRADE" and not sig.tps:
-                            no_tp += 1
-                    else:
-                        if not sym:
-                            no_symbol += 1
-                        elif not act:
-                            no_action += 1
-                        else:
-                            no_entry += 1
+                        parser = sp_module.SignalParser()
+                        all_parsed = []
+                        trade_signals = []
+                        signal_texts = []
+                        spam_count = 0
+                        no_symbol = 0
+                        no_action = 0
+                        no_entry = 0
+                        no_tp = 0
+                        for text, ts in messages:
+                            if sp_module.is_spam(text):
+                                spam_count += 1
+                                continue
+                            norm = sp_module.normalize_text(text)
+                            sym = sp_module._extract_symbol(norm)
+                            act = sp_module._extract_action(norm)
+                            sig = parser.parse(text, ts)
+                            if sig:
+                                all_parsed.append(sig)
+                                if sig.signal_type == "TRADE" and sig.tps:
+                                    trade_signals.append(sig)
+                                    signal_texts.append(text)
+                                elif sig.signal_type == "TRADE" and not sig.tps:
+                                    no_tp += 1
+                            else:
+                                if not sym:
+                                    no_symbol += 1
+                                elif not act:
+                                    no_action += 1
+                                else:
+                                    no_entry += 1
 
-                return {
-                    "has_signals": len(trade_signals) > 0,
-                    "signals": trade_signals,
-                    "signal_texts": signal_texts,
-                    "count": len(trade_signals),
-                    "total_messages": len(messages),
-                    "all_parsed": len(all_parsed),
-                    "spam": spam_count,
-                    "no_symbol": no_symbol,
-                    "no_action": no_action,
-                    "no_entry": no_entry,
-                    "no_tp": no_tp,
-                    "raw_messages": messages,
-                }
-            except Exception as e:
-                return {"has_signals": False, "signals": [], "count": 0, "error": str(e)}
+                        results[ch_id] = {
+                            "has_signals": len(trade_signals) > 0,
+                            "signals": trade_signals,
+                            "signal_texts": signal_texts,
+                            "count": len(trade_signals),
+                            "total_messages": len(messages),
+                            "all_parsed": len(all_parsed),
+                            "spam": spam_count,
+                            "no_symbol": no_symbol,
+                            "no_action": no_action,
+                            "no_entry": no_entry,
+                            "no_tp": no_tp,
+                            "raw_messages": messages,
+                        }
+                    except Exception as e:
+                        results[ch_id] = {"has_signals": False, "signals": [], "count": 0, "signal_texts": [], "error": str(e)}
+                return results
             finally:
                 await client.disconnect()
 
@@ -443,58 +420,55 @@ elif st.session_state.step == "scanning":
         channels = run_telethon(_get_all_channels, _api_id, _api_hash)
         scan_log.info(f"📋 **{len(channels)}** channels trouvés")
 
-        # Phase 2 : scanner chaque channel
+        # Phase 2 : scanner TOUS les channels en une seule connexion
+        scan_progress.progress(0.1, text=f"🔍 Scan de {len(channels)} channels...")
+        scan_results = run_telethon(_scan_all_channels, _api_id, _api_hash, channels, analysis_days)
+
         trading_channels = []
         channel_signals = {}
         channel_formats = {}
-        total = len(channels)
 
         for i, ch in enumerate(channels):
+            ch_id = ch["id"]
+            scan = scan_results.get(ch_id, {})
             scan_progress.progress(
-                0.1 + 0.85 * ((i + 1) / total),
-                text=f"🔍 {i+1}/{total} — {ch['title'][:30]}"
+                0.1 + 0.85 * ((i + 1) / len(channels)),
+                text=f"📊 {i+1}/{len(channels)} — {ch['title'][:30]}"
             )
-            try:
-                scan = run_telethon(_scan_one_channel, _api_id, _api_hash, ch["id"], analysis_days)
-                total_msgs = scan.get("total_messages", 0)
-                all_parsed = scan.get("all_parsed", 0)
-                spam = scan.get("spam", 0)
-                err = scan.get("error", "")
-                if err:
-                    scan_log.error(f"❌ **{ch['title'][:30]}** — Erreur: {err}")
-                    continue
-                if scan["has_signals"]:
-                    trading_channels.append({
-                        **ch,
-                        "signal_count": scan["count"],
-                    })
-                    channel_signals[ch["id"]] = {
-                        "name": ch["title"],
-                        "signals": scan["signals"],
-                        "signal_texts": scan.get("signal_texts", []),
-                    }
-                    # Detect signal format
-                    raw_msgs = scan.get("raw_messages", [])
-                    if raw_msgs:
-                        fmt = detect_format(raw_msgs, channel_id=ch["id"], channel_name=ch["title"])
-                        channel_formats[ch["id"]] = fmt
-                    # Show first signal as verification
-                    sig_preview = scan.get("signal_texts", [""])[0][:80] if scan.get("signal_texts") else "—"
-                    scan_log.success(f"🎯 **{ch['title'][:30]}** — {scan['count']} signaux ({total_msgs} msgs, {all_parsed} parsés, {spam} spam) | Preview: {sig_preview}")
-                else:
-                    no_sym = scan.get("no_symbol", 0)
-                    no_act = scan.get("no_action", 0)
-                    no_ent = scan.get("no_entry", 0)
-                    no_tp = scan.get("no_tp", 0)
-                    debug = f"{total_msgs} msgs | {spam} spam | {all_parsed} parsés | 0 TRADE+TP"
-                    if no_sym: debug += f" | {no_sym} sans symbole"
-                    if no_act: debug += f" | {no_act} sans action"
-                    if no_ent: debug += f" | {no_ent} sans entry"
-                    if no_tp: debug += f" | {no_tp} sans TP"
-                    scan_log.warning(f"⚠️ **{ch['title'][:30]}** — {debug}")
-            except Exception as e:
-                scan_log.error(f"❌ **{ch['title'][:30]}** — Exception: {e}")
+            if not scan:
+                scan_log.warning(f"⚠️ **{ch['title'][:30]}** — Pas de résultat")
                 continue
+            err = scan.get("error", "")
+            if err:
+                scan_log.error(f"❌ **{ch['title'][:30]}** — Erreur: {err}")
+                continue
+            total_msgs = scan.get("total_messages", 0)
+            all_parsed = scan.get("all_parsed", 0)
+            spam = scan.get("spam", 0)
+            if scan.get("has_signals"):
+                trading_channels.append({**ch, "signal_count": scan["count"]})
+                channel_signals[ch_id] = {
+                    "name": ch["title"],
+                    "signals": scan["signals"],
+                    "signal_texts": scan.get("signal_texts", []),
+                }
+                raw_msgs = scan.get("raw_messages", [])
+                if raw_msgs:
+                    fmt = detect_format(raw_msgs, channel_id=ch_id, channel_name=ch["title"])
+                    channel_formats[ch_id] = fmt
+                sig_preview = scan.get("signal_texts", [""])[0][:80] if scan.get("signal_texts") else "—"
+                scan_log.success(f"🎯 **{ch['title'][:30]}** — {scan['count']} signaux ({total_msgs} msgs) | {sig_preview}")
+            else:
+                no_sym = scan.get("no_symbol", 0)
+                no_act = scan.get("no_action", 0)
+                no_ent = scan.get("no_entry", 0)
+                no_tp = scan.get("no_tp", 0)
+                debug = f"{total_msgs} msgs | {spam} spam | {all_parsed} parsés | 0 TRADE+TP"
+                if no_sym: debug += f" | {no_sym} sans symbole"
+                if no_act: debug += f" | {no_act} sans action"
+                if no_ent: debug += f" | {no_ent} sans entry"
+                if no_tp: debug += f" | {no_tp} sans TP"
+                scan_log.warning(f"⚠️ **{ch['title'][:30]}** — {debug}")
 
         scan_progress.progress(1.0, text="✅ Scan terminé !")
         scan_log.success(f"✅ **{len(trading_channels)}** channels avec signaux sur **{total}** scannés")
