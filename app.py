@@ -379,6 +379,7 @@ elif st.session_state.step == "scanning":
                 parser = sp_module.SignalParser()
                 all_parsed = []
                 trade_signals = []
+                signal_texts = []  # raw text of each parsed signal
                 spam_count = 0
                 no_symbol = 0
                 no_action = 0
@@ -396,6 +397,7 @@ elif st.session_state.step == "scanning":
                         all_parsed.append(sig)
                         if sig.signal_type == "TRADE" and sig.tps:
                             trade_signals.append(sig)
+                            signal_texts.append(text)
                         elif sig.signal_type == "TRADE" and not sig.tps:
                             no_tp += 1
                     else:
@@ -409,6 +411,7 @@ elif st.session_state.step == "scanning":
                 return {
                     "has_signals": len(trade_signals) > 0,
                     "signals": trade_signals,
+                    "signal_texts": signal_texts,
                     "count": len(trade_signals),
                     "total_messages": len(messages),
                     "all_parsed": len(all_parsed),
@@ -457,6 +460,7 @@ elif st.session_state.step == "scanning":
                     channel_signals[ch["id"]] = {
                         "name": ch["title"],
                         "signals": scan["signals"],
+                        "signal_texts": scan.get("signal_texts", []),
                     }
                     # Detect signal format
                     raw_msgs = scan.get("raw_messages", [])
@@ -560,69 +564,51 @@ elif st.session_state.step == "select":
             )
             st.metric("📊 Total signaux à exporter", total_signals)
 
-        # === FORMAT DETECTION SUMMARY + CSV DOWNLOAD ===
-        channel_formats = st.session_state.get("channel_formats", {})
-        if channel_formats:
-            st.divider()
-            st.subheader("🔎 Formats de signaux détectés")
+        # === SIGNALS RAW CSV DOWNLOAD ===
+        st.divider()
+        st.subheader("📋 Signaux bruts par channel")
 
-            import csv as _csv
-            import io as _io
+        import csv as _csv
+        import io as _io
 
-            fmt_rows = []
-            for ch_id, fmt in channel_formats.items():
-                if ch_id not in selected_ids:
-                    continue
-                fmt_rows.append({
-                    "channel_name": fmt.channel_name,
+        sig_csv_rows = []
+        for ch_id in selected_ids:
+            data = channel_signals.get(ch_id, {})
+            ch_name = data.get("name", "")
+            sig_texts = data.get("signal_texts", [])
+            for raw_text in sig_texts:
+                sig_csv_rows.append({
+                    "channel_name": ch_name,
                     "channel_id": ch_id,
-                    "pair": fmt.pair,
-                    "direction_style": fmt.direction_style,
-                    "entry_style": fmt.entry_style,
-                    "tp_style": fmt.tp_style,
-                    "sl_style": fmt.sl_style,
-                    "avg_tp_count": fmt.avg_tp_count,
-                    "signal_density": fmt.signal_density,
-                    "confidence": fmt.confidence,
-                    "sample_size": fmt.sample_size,
+                    "signal": raw_text,
                 })
 
-            if fmt_rows:
-                # Afficher le tableau
-                fmt_df = pd.DataFrame(fmt_rows)
-                st.dataframe(
-                    fmt_df,
-                    column_config={
-                        "channel_name": st.column_config.TextColumn("Channel"),
-                        "channel_id": st.column_config.TextColumn("ID"),
-                        "pair": st.column_config.TextColumn("Paire"),
-                        "direction_style": st.column_config.TextColumn("Direction"),
-                        "entry_style": st.column_config.TextColumn("Entrée"),
-                        "tp_style": st.column_config.TextColumn("TP"),
-                        "sl_style": st.column_config.TextColumn("SL"),
-                        "avg_tp_count": st.column_config.NumberColumn("TP moy", format="%.1f"),
-                        "signal_density": st.column_config.ProgressColumn("Densité", min_value=0, max_value=1),
-                        "confidence": st.column_config.ProgressColumn("Confiance", min_value=0, max_value=1),
-                        "sample_size": st.column_config.NumberColumn("Échantillon"),
-                    },
-                    use_container_width=True,
-                    hide_index=True,
-                )
+        if sig_csv_rows:
+            st.info(f"📊 {len(sig_csv_rows)} signaux bruts à exporter")
 
-                # CSV download
-                fmt_csv_buf = _io.StringIO()
-                fmt_writer = _csv.DictWriter(fmt_csv_buf, fieldnames=fmt_rows[0].keys())
-                fmt_writer.writeheader()
-                fmt_writer.writerows(fmt_rows)
-                fmt_csv_content = fmt_csv_buf.getvalue()
+            # Preview: show first 5 rows
+            with st.expander("👁️ Aperçu (5 premiers signaux)"):
+                for row in sig_csv_rows[:5]:
+                    st.markdown(f"**{row['channel_name']}** · `{row['channel_id']}`")
+                    st.code(row['signal'], language=None)
+                    st.divider()
 
-                st.download_button(
-                    "📥 Télécharger CSV des formats",
-                    data=fmt_csv_content,
-                    file_name="channels_formats.csv",
-                    mime="text/csv",
-                    key="dl_formats_csv",
-                )
+            # CSV download
+            sig_csv_buf = _io.StringIO()
+            sig_writer = _csv.DictWriter(sig_csv_buf, fieldnames=["channel_name", "channel_id", "signal"])
+            sig_writer.writeheader()
+            sig_writer.writerows(sig_csv_rows)
+            sig_csv_content = sig_csv_buf.getvalue()
+
+            st.download_button(
+                "📥 Télécharger CSV des signaux bruts",
+                data=sig_csv_content,
+                file_name="signals_raw.csv",
+                mime="text/csv",
+                key="dl_signals_raw_csv",
+            )
+        else:
+            st.warning("Aucun signal brut à exporter.")
 
         # Export
         st.divider()
