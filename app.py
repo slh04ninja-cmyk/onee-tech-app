@@ -539,6 +539,7 @@ elif st.session_state.step == "scanning":
 
         # Phase 2 : scanner chaque channel
         trading_channels = []
+        all_scanned_channels = []  # tous les channels scannés
         channel_signals = {}
         channel_formats = {}
         total = len(channels)
@@ -557,6 +558,7 @@ elif st.session_state.step == "scanning":
                 if err:
                     scan_log.error(f"❌ **{ch['title'][:30]}** — Erreur: {err}")
                     continue
+                all_scanned_channels.append(ch)  # tous les channels
                 if scan["has_signals"]:
                     trading_channels.append({
                         **ch,
@@ -596,6 +598,7 @@ elif st.session_state.step == "scanning":
 
         st.session_state.channels = channels
         st.session_state.trading_channels = trading_channels
+        st.session_state.all_scanned_channels = all_scanned_channels
         st.session_state.channel_signals = channel_signals
         st.session_state.channel_formats = channel_formats
         st.session_state._processing = False
@@ -716,7 +719,19 @@ elif st.session_state.step == "select":
                     result.append(ascii_char)
             return ''.join(result)
 
+        # Construire les lignes Excel: d'abord les channels avec 0 signal, puis les signaux
+        all_scanned = st.session_state.get("all_scanned_channels", [])
+        zero_signal_channels = []
+        for ch in all_scanned:
+            ch_id = ch["id"]
+            if ch_id not in channel_signals or not channel_signals[ch_id].get("signal_texts"):
+                zero_signal_channels.append((_ascii_name(ch["title"]), ch_id))
+
         sig_xlsx_rows = []
+        # 1. Channels avec 0 signal (au début)
+        for ch_name, ch_id in zero_signal_channels:
+            sig_xlsx_rows.append((ch_name, ch_id, ""))
+        # 2. Signaux des channels sélectionnés
         for ch_id in selected_ids:
             data = channel_signals.get(ch_id, {})
             ch_name = _ascii_name(data.get("name", ""))
@@ -725,24 +740,34 @@ elif st.session_state.step == "select":
                 sig_xlsx_rows.append((ch_name, ch_id, raw_text))
 
         if sig_xlsx_rows:
-            st.info(f"📊 {len(sig_xlsx_rows)} signaux bruts à exporter")
+            st.info(f"📊 {len(sig_xlsx_rows)} lignes à exporter ({len(zero_signal_channels)} channels sans signal)")
 
-            # Preview: show first 5 signals
-            with st.expander("👁️ Aperçu (5 premiers signaux)"):
+            # Preview
+            with st.expander("👁️ Aperçu (5 premières lignes)"):
                 for i, (ch_name, ch_id, raw_text) in enumerate(sig_xlsx_rows[:5]):
                     st.markdown(f"**{ch_name}** · `{ch_id}`")
-                    st.text(raw_text)
+                    st.text(raw_text if raw_text else "(0 signal)")
                     if i < 4:
                         st.divider()
 
             # Excel download — openpyxl, preserves emojis and special chars
             from openpyxl import Workbook
+            from openpyxl.styles import Font, PatternFill
             wb = Workbook()
             ws = wb.active
             ws.title = "Signaux"
             ws.append(["channel_name", "channel_id", "signal"])
+            # Style header
+            header_font = Font(bold=True)
+            for cell in ws[1]:
+                cell.font = header_font
             for ch_name, ch_id, raw_text in sig_xlsx_rows:
                 ws.append([ch_name, ch_id, raw_text])
+            # Coloriser les lignes sans signal (gris)
+            gray_fill = PatternFill(start_color="F2F2F2", end_color="F2F2F2", fill_type="solid")
+            for row_idx in range(2, 2 + len(zero_signal_channels)):
+                for cell in ws[row_idx]:
+                    cell.fill = gray_fill
             # Auto-fit column widths
             ws.column_dimensions['A'].width = 30
             ws.column_dimensions['B'].width = 15
