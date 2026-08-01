@@ -15,7 +15,6 @@ from telethon.tl.types import Channel
 
 from signal_parser import SignalParser, TradeSignal, FormatProfile, normalize_text, is_spam
 from csv_exporter import signals_to_csv, create_zip_from_channels, get_export_summary
-import unicodedata as _ud
 
 
 def normalize_channel_name(name: str) -> str:
