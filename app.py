@@ -51,18 +51,30 @@ def _is_qa_message(text: str) -> bool:
 
 def _merge_qa_fusion(signal_texts: list) -> list:
     """Fusionne les signaux QA avec le signal complet.
-    Ordre dans Telegram: complet d'abord, QA après.
-    On attache le QA au signal complet précédent."""
+    Ordre du scan: du plus récent au plus ancien.
+    QA (récent) → complet (ancien) dans la liste.
+    On attache le QA au signal complet suivant (en début)."""
     if len(signal_texts) < 2:
         return signal_texts
 
+    # Pass 1: identifier les QA et les attacher au signal complet suivant
     merged = []
-    for text in signal_texts:
-        if _is_qa_message(text) and merged:
-            # QA = message court sans TP/SL → fusionner avec le signal précédent
-            merged[-1] = merged[-1] + "\n\n" + text
+    i = 0
+    while i < len(signal_texts):
+        if _is_qa_message(signal_texts[i]):
+            qa = signal_texts[i]
+            # Chercher le prochain signal complet (avec TP)
+            if i + 1 < len(signal_texts) and not _is_qa_message(signal_texts[i + 1]):
+                # Fusionner QA + complet dans la même cellule
+                merged.append(qa + "\n\n" + signal_texts[i + 1])
+                i += 2
+            else:
+                # QA sans signal complet après → garder tel quel
+                merged.append(qa)
+                i += 1
         else:
-            merged.append(text)
+            merged.append(signal_texts[i])
+            i += 1
     return merged
 
 def normalize_channel_name(name: str) -> str:
