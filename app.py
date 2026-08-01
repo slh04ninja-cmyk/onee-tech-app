@@ -361,17 +361,27 @@ elif st.session_state.step == "scanning":
         async def _scan_one_channel(api_id_val, api_hash_val, channel_id, days):
             from datetime import timedelta
             import signal_parser as sp_module
-            client = TelegramClient("gold_session", api_id_val, api_hash_val)
+            # Use a fresh session per channel to avoid cross-contamination
+            session_name = f"gold_scan_{channel_id}"
+            client = TelegramClient(session_name, api_id_val, api_hash_val)
             await client.start()
             try:
                 messages = []
                 entity = await client.get_entity(channel_id)
+                ch_title = getattr(entity, 'title', str(channel_id))
                 min_date = datetime.now() - timedelta(days=days)
                 async for message in client.iter_messages(entity, limit=200):
                     if message.date.replace(tzinfo=None) < min_date:
                         break
                     if message.text:
                         messages.append((message.text, message.date.replace(tzinfo=None)))
+                # Clean up session file after scan
+                try:
+                    import glob
+                    for f in glob.glob(f"{session_name}.session*"):
+                        os.remove(f)
+                except Exception:
+                    pass
 
                 if not messages:
                     return {"has_signals": False, "signals": [], "count": 0, "debug": "0 messages fetched"}
@@ -467,7 +477,9 @@ elif st.session_state.step == "scanning":
                     if raw_msgs:
                         fmt = detect_format(raw_msgs, channel_id=ch["id"], channel_name=ch["title"])
                         channel_formats[ch["id"]] = fmt
-                    scan_log.success(f"🎯 **{ch['title'][:30]}** — {scan['count']} signaux ({total_msgs} msgs, {all_parsed} parsés, {spam} spam)")
+                    # Show first signal as verification
+                    sig_preview = scan.get("signal_texts", [""])[0][:80] if scan.get("signal_texts") else "—"
+                    scan_log.success(f"🎯 **{ch['title'][:30]}** — {scan['count']} signaux ({total_msgs} msgs, {all_parsed} parsés, {spam} spam) | Preview: {sig_preview}")
                 else:
                     no_sym = scan.get("no_symbol", 0)
                     no_act = scan.get("no_action", 0)
