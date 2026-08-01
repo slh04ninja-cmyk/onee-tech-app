@@ -604,51 +604,91 @@ elif st.session_state.step == "select":
             )
             st.metric("📊 Total signaux à exporter", total_signals)
 
-        # === SIGNALS RAW CSV DOWNLOAD ===
+        # === SIGNALS RAW EXCEL DOWNLOAD ===
         st.divider()
         st.subheader("📋 Signaux bruts par channel")
 
-        import csv as _csv
         import io as _io
+        import unicodedata as _ud
 
-        sig_csv_rows = []
+        def _ascii_name(name: str) -> str:
+            """Convertit les caractères Unicode stylisés en ASCII."""
+            RANGES = [
+                (0x1D400, 0x1D419, 0x41), (0x1D41A, 0x1D433, 0x61),
+                (0x1D434, 0x1D44D, 0x41), (0x1D44E, 0x1D467, 0x61),
+                (0x1D468, 0x1D481, 0x41), (0x1D482, 0x1D49B, 0x61),
+                (0x1D49C, 0x1D4B5, 0x41), (0x1D4B6, 0x1D4CF, 0x61),
+                (0x1D4D0, 0x1D4E9, 0x41), (0x1D4EA, 0x1D503, 0x61),
+                (0x1D504, 0x1D51D, 0x41), (0x1D51E, 0x1D537, 0x61),
+                (0x1D538, 0x1D551, 0x41), (0x1D552, 0x1D56B, 0x61),
+                (0x1D56C, 0x1D585, 0x41), (0x1D586, 0x1D59F, 0x61),
+                (0x1D5A0, 0x1D5B9, 0x41), (0x1D5BA, 0x1D5D3, 0x61),
+                (0x1D5D4, 0x1D5ED, 0x41), (0x1D5EE, 0x1D607, 0x61),
+                (0x1D608, 0x1D621, 0x41), (0x1D622, 0x1D63B, 0x61),
+                (0x1D63C, 0x1D655, 0x41), (0x1D656, 0x1D66F, 0x61),
+                (0x1D670, 0x1D689, 0x41), (0x1D68A, 0x1D6A3, 0x61),
+            ]
+            result = []
+            for ch in name:
+                cp = ord(ch)
+                if 0x20 <= cp < 0x7F:
+                    result.append(ch)
+                    continue
+                mapped = False
+                for start, end, base in RANGES:
+                    if start <= cp <= end:
+                        result.append(chr(base + (cp - start)))
+                        mapped = True
+                        break
+                if mapped:
+                    continue
+                nfkd = _ud.normalize('NFKD', ch)
+                ascii_char = nfkd.encode('ascii', 'ignore').decode('ascii')
+                if ascii_char:
+                    result.append(ascii_char)
+            return ''.join(result)
+
+        sig_xlsx_rows = []
         for ch_id in selected_ids:
             data = channel_signals.get(ch_id, {})
-            ch_name = data.get("name", "")
+            ch_name = _ascii_name(data.get("name", ""))
             sig_texts = data.get("signal_texts", [])
             for raw_text in sig_texts:
-                sig_csv_rows.append({
-                    "channel_name": ch_name,
-                    "channel_id": ch_id,
-                    "signal": raw_text,  # signal brut, tel quel
-                })
+                sig_xlsx_rows.append((ch_name, ch_id, raw_text))
 
-        if sig_csv_rows:
-            st.info(f"📊 {len(sig_csv_rows)} signaux bruts à exporter")
+        if sig_xlsx_rows:
+            st.info(f"📊 {len(sig_xlsx_rows)} signaux bruts à exporter")
 
             # Preview: show first 5 signals
             with st.expander("👁️ Aperçu (5 premiers signaux)"):
-                for i, row in enumerate(sig_csv_rows[:5]):
-                    st.markdown(f"**{row['channel_name']}** · `{row['channel_id']}`")
-                    st.text(row['signal'])
+                for i, (ch_name, ch_id, raw_text) in enumerate(sig_xlsx_rows[:5]):
+                    st.markdown(f"**{ch_name}** · `{ch_id}`")
+                    st.text(raw_text)
                     if i < 4:
                         st.divider()
 
-            # CSV download — UTF-8 with BOM for Excel, QUOTE_ALL for multi-line
-            sig_csv_buf = _io.StringIO()
-            sig_csv_buf.write('\xEF\xBB\xBF')  # UTF-8 BOM
-            writer = _csv.writer(sig_csv_buf, quoting=_csv.QUOTE_ALL, lineterminator='\n')
-            writer.writerow(["channel_name", "channel_id", "signal"])
-            for row in sig_csv_rows:
-                writer.writerow([row["channel_name"], row["channel_id"], row["signal"]])
-            sig_csv_content = sig_csv_buf.getvalue()
+            # Excel download — openpyxl, preserves emojis and special chars
+            from openpyxl import Workbook
+            wb = Workbook()
+            ws = wb.active
+            ws.title = "Signaux"
+            ws.append(["channel_name", "channel_id", "signal"])
+            for ch_name, ch_id, raw_text in sig_xlsx_rows:
+                ws.append([ch_name, ch_id, raw_text])
+            # Auto-fit column widths
+            ws.column_dimensions['A'].width = 30
+            ws.column_dimensions['B'].width = 15
+            ws.column_dimensions['C'].width = 80
+            xlsx_buf = _io.BytesIO()
+            wb.save(xlsx_buf)
+            xlsx_buf.seek(0)
 
             st.download_button(
-                "📥 Télécharger CSV des signaux bruts",
-                data=sig_csv_content,
-                file_name="signals_raw.csv",
-                mime="text/csv",
-                key="dl_signals_raw_csv",
+                "📥 Télécharger Excel des signaux bruts",
+                data=xlsx_buf.getvalue(),
+                file_name="signals_raw.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                key="dl_signals_xlsx",
             )
         else:
             st.warning("Aucun signal brut à exporter.")
