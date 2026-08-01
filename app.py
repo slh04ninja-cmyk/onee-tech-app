@@ -475,7 +475,9 @@ elif st.session_state.step == "scanning":
                 parser = sp_module.SignalParser()
                 all_parsed = []
                 trade_signals = []
-                signal_texts = []  # raw text of each parsed signal
+                signal_texts = []  # raw text of each parsed signal (avec TP)
+                qa_texts = []  # raw text des QA (TRADE sans TP)
+                all_raw_texts = []  # tous les messages non-spam dans l'ordre
                 spam_count = 0
                 no_symbol = 0
                 no_action = 0
@@ -493,9 +495,12 @@ elif st.session_state.step == "scanning":
                         all_parsed.append(sig)
                         if sig.signal_type == "TRADE" and sig.tps:
                             trade_signals.append(sig)
-                            signal_texts.append(text)  # signal brut, tel quel
+                            signal_texts.append(text)
+                            all_raw_texts.append(text)
                         elif sig.signal_type == "TRADE" and not sig.tps:
                             no_tp += 1
+                            qa_texts.append(text)
+                            all_raw_texts.append(text)
                     else:
                         if not sym:
                             no_symbol += 1
@@ -504,10 +509,13 @@ elif st.session_state.step == "scanning":
                         else:
                             no_entry += 1
 
+                # Fusionner QA + signal complet dans all_raw_texts
+                merged_texts = _merge_qa_fusion(all_raw_texts)
+
                 return {
                     "has_signals": len(trade_signals) > 0,
                     "signals": trade_signals,
-                    "signal_texts": signal_texts,
+                    "signal_texts": merged_texts,
                     "count": len(trade_signals),
                     "total_messages": len(messages),
                     "all_parsed": len(all_parsed),
@@ -553,14 +561,13 @@ elif st.session_state.step == "scanning":
                         **ch,
                         "signal_count": scan["count"],
                     })
-                    # Post-traitement des signaux bruts
+                    # Post-traitement: nettoyer le markdown
                     raw_texts = scan.get("signal_texts", [])
                     cleaned_texts = [_clean_telegram_md(t) for t in raw_texts]
-                    merged_texts = _merge_qa_fusion(cleaned_texts)
                     channel_signals[ch["id"]] = {
                         "name": ch["title"],
                         "signals": scan["signals"],
-                        "signal_texts": merged_texts,
+                        "signal_texts": cleaned_texts,
                     }
                     # Detect signal format
                     raw_msgs = scan.get("raw_messages", [])
