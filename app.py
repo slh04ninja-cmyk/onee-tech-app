@@ -581,6 +581,7 @@ elif st.session_state.step == "select":
         st.divider()
         st.subheader("📋 Signaux bruts par channel")
 
+        import csv as _csv
         import io as _io
 
         sig_csv_rows = []
@@ -589,34 +590,30 @@ elif st.session_state.step == "select":
             ch_name = data.get("name", "")
             sig_texts = data.get("signal_texts", [])
             for raw_text in sig_texts:
-                # Flatten multi-line signals: replace newlines with ' | ' for CSV compatibility
-                flat_text = raw_text.replace("\r\n", " | ").replace("\n", " | ").replace("\r", " | ")
-                # Remove excessive whitespace
-                flat_text = " ".join(flat_text.split())
                 sig_csv_rows.append({
                     "channel_name": ch_name,
                     "channel_id": ch_id,
-                    "signal": flat_text,
+                    "signal": raw_text,  # signal brut, tel quel
                 })
 
         if sig_csv_rows:
             st.info(f"📊 {len(sig_csv_rows)} signaux bruts à exporter")
 
-            # Preview: show first 5 rows
+            # Preview: show first 5 signals
             with st.expander("👁️ Aperçu (5 premiers signaux)"):
-                for row in sig_csv_rows[:5]:
+                for i, row in enumerate(sig_csv_rows[:5]):
                     st.markdown(f"**{row['channel_name']}** · `{row['channel_id']}`")
-                    st.code(row['signal'], language=None)
-                    st.divider()
+                    st.text(row['signal'])
+                    if i < 4:
+                        st.divider()
 
-            # CSV download — use tab separator to avoid comma conflicts in signal text
+            # CSV download — standard CSV with proper quoting for multi-line fields
             sig_csv_buf = _io.StringIO()
-            sig_csv_buf.write("channel_name\tchannel_id\tsignal\n")
+            sig_csv_buf.write('\xEF\xBB\xBF')  # UTF-8 BOM for Excel compatibility
+            writer = _csv.writer(sig_csv_buf, quoting=_csv.QUOTE_ALL, lineterminator='\n')
+            writer.writerow(["channel_name", "channel_id", "signal"])
             for row in sig_csv_rows:
-                # Escape any remaining tabs in signal text
-                safe_signal = row["signal"].replace("\t", " ")
-                safe_name = row["channel_name"].replace("\t", " ")
-                sig_csv_buf.write(f"{safe_name}\t{row['channel_id']}\t{safe_signal}\n")
+                writer.writerow([row["channel_name"], row["channel_id"], row["signal"]])
             sig_csv_content = sig_csv_buf.getvalue()
 
             st.download_button(
