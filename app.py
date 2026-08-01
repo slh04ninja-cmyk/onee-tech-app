@@ -15,6 +15,7 @@ from telethon.tl.types import Channel
 
 from signal_parser import SignalParser, TradeSignal, FormatProfile, normalize_text, is_spam
 from csv_exporter import signals_to_csv, create_zip_from_channels, get_export_summary
+from format_detector import detect_format, FormatProfile as DetectedFormatProfile
 
 # Charger les variables d'environnement depuis .env
 load_dotenv()
@@ -163,6 +164,7 @@ defaults = {
     "trading_channels": [],
     "selected_channels": {},
     "channel_signals": {},  # {ch_id: {"name": str, "signals": [TradeSignal]}}
+    "channel_formats": {},  # {ch_id: FormatProfile}
     "phone_code_hash": "",
     "logged_in": False,
     "_processing": False,
@@ -415,6 +417,7 @@ elif st.session_state.step == "scanning":
                     "no_action": no_action,
                     "no_entry": no_entry,
                     "no_tp": no_tp,
+                    "raw_messages": messages,
                 }
             except Exception as e:
                 return {"has_signals": False, "signals": [], "count": 0, "error": str(e)}
@@ -429,6 +432,7 @@ elif st.session_state.step == "scanning":
         # Phase 2 : scanner chaque channel
         trading_channels = []
         channel_signals = {}
+        channel_formats = {}
         total = len(channels)
 
         for i, ch in enumerate(channels):
@@ -454,6 +458,11 @@ elif st.session_state.step == "scanning":
                         "name": ch["title"],
                         "signals": scan["signals"],
                     }
+                    # Detect signal format
+                    raw_msgs = scan.get("raw_messages", [])
+                    if raw_msgs:
+                        fmt = detect_format(raw_msgs, channel_id=ch["id"], channel_name=ch["title"])
+                        channel_formats[ch["id"]] = fmt
                     scan_log.success(f"🎯 **{ch['title'][:30]}** — {scan['count']} signaux ({total_msgs} msgs, {all_parsed} parsés, {spam} spam)")
                 else:
                     no_sym = scan.get("no_symbol", 0)
@@ -476,6 +485,7 @@ elif st.session_state.step == "scanning":
         st.session_state.channels = channels
         st.session_state.trading_channels = trading_channels
         st.session_state.channel_signals = channel_signals
+        st.session_state.channel_formats = channel_formats
         st.session_state._processing = False
         st.session_state.step = "select"
         st.rerun()
@@ -549,6 +559,70 @@ elif st.session_state.step == "select":
                 if s["channel_id"] in selected_ids
             )
             st.metric("📊 Total signaux à exporter", total_signals)
+
+        # === FORMAT DETECTION SUMMARY + CSV DOWNLOAD ===
+        channel_formats = st.session_state.get("channel_formats", {})
+        if channel_formats:
+            st.divider()
+            st.subheader("🔎 Formats de signaux détectés")
+
+            import csv as _csv
+            import io as _io
+
+            fmt_rows = []
+            for ch_id, fmt in channel_formats.items():
+                if ch_id not in selected_ids:
+                    continue
+                fmt_rows.append({
+                    "channel_name": fmt.channel_name,
+                    "channel_id": ch_id,
+                    "pair": fmt.pair,
+                    "direction_style": fmt.direction_style,
+                    "entry_style": fmt.entry_style,
+                    "tp_style": fmt.tp_style,
+                    "sl_style": fmt.sl_style,
+                    "avg_tp_count": fmt.avg_tp_count,
+                    "signal_density": fmt.signal_density,
+                    "confidence": fmt.confidence,
+                    "sample_size": fmt.sample_size,
+                })
+
+            if fmt_rows:
+                # Afficher le tableau
+                fmt_df = pd.DataFrame(fmt_rows)
+                st.dataframe(
+                    fmt_df,
+                    column_config={
+                        "channel_name": st.column_config.TextColumn("Channel"),
+                        "channel_id": st.column_config.TextColumn("ID"),
+                        "pair": st.column_config.TextColumn("Paire"),
+                        "direction_style": st.column_config.TextColumn("Direction"),
+                        "entry_style": st.column_config.TextColumn("Entrée"),
+                        "tp_style": st.column_config.TextColumn("TP"),
+                        "sl_style": st.column_config.TextColumn("SL"),
+                        "avg_tp_count": st.column_config.NumberColumn("TP moy", format="%.1f"),
+                        "signal_density": st.column_config.ProgressColumn("Densité", min_value=0, max_value=1),
+                        "confidence": st.column_config.ProgressColumn("Confiance", min_value=0, max_value=1),
+                        "sample_size": st.column_config.NumberColumn("Échantillon"),
+                    },
+                    use_container_width=True,
+                    hide_index=True,
+                )
+
+                # CSV download
+                fmt_csv_buf = _io.StringIO()
+                fmt_writer = _csv.DictWriter(fmt_csv_buf, fieldnames=fmt_rows[0].keys())
+                fmt_writer.writeheader()
+                fmt_writer.writerows(fmt_rows)
+                fmt_csv_content = fmt_csv_buf.getvalue()
+
+                st.download_button(
+                    "📥 Télécharger CSV des formats",
+                    data=fmt_csv_content,
+                    file_name="channels_formats.csv",
+                    mime="text/csv",
+                    key="dl_formats_csv",
+                )
 
         # Export
         st.divider()
