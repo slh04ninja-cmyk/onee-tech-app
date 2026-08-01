@@ -15,6 +15,53 @@ from telethon.tl.types import Channel
 
 from signal_parser import SignalParser, TradeSignal, FormatProfile, normalize_text, is_spam
 from csv_exporter import signals_to_csv, create_zip_from_channels, get_export_summary
+import unicodedata as _ud
+
+
+def normalize_channel_name(name: str) -> str:
+    """Convertit les caractères Unicode stylisés (𝗘𝗟𝗜𝗧𝗘, 𝐆𝐎𝐋𝐃) en texte ASCII normalisé."""
+    # Mathematical Alphanumeric Symbols → ASCII mapping
+    # Bold, Italic, Script, Fraktur, Double-struck, Monospace, Sans-serif
+    RANGES = [
+        (0x1D400, 0x1D419, 0x41),  # 𝐀-𝐙 → A-Z (bold)
+        (0x1D41A, 0x1D433, 0x61),  # 𝐚-𝐳 → a-z (bold)
+        (0x1D434, 0x1D44D, 0x41),  # 𝐴-𝑍 → A-Z (italic)
+        (0x1D44E, 0x1D467, 0x61),  # 𝑎-𝑧 → a-z (italic)
+        (0x1D468, 0x1D481, 0x41),  # 𝑨-𝒁 → A-Z (bold italic)
+        (0x1D482, 0x1D49B, 0x61),  # 𝒂-𝒛 → a-z (bold italic)
+        (0x1D49C, 0x1D4B5, 0x41),  # 𝒜-𝒵 → A-Z (script)
+        (0x1D4B6, 0x1D4CF, 0x61),  # 𝒶-𝔷 → a-z (script)
+        (0x1D4D0, 0x1D4E9, 0x41),  # 𝓐-𝓩 → A-Z (script bold)
+        (0x1D4EA, 0x1D503, 0x61),  # 𝓪-𝔃 → a-z (script bold)
+        (0x1D504, 0x1D51D, 0x41),  # 𝔄-𝕐 → A-Z (fraktur)
+        (0x1D51E, 0x1D537, 0x61),  # 𝔞-𝔷 → a-z (fraktur)
+        (0x1D538, 0x1D551, 0x41),  # 𝔸-𝕐 → A-Z (double-struck)
+        (0x1D552, 0x1D56B, 0x61),  # 𝕒-𝕫 → a-z (double-struck)
+        (0x1D56C, 0x1D585, 0x41),  # 𝕬-𝖅 → A-Z (bold fraktur)
+        (0x1D586, 0x1D59F, 0x61),  # 𝖆-𝖟 → a-z (bold fraktur)
+        (0x1D5A0, 0x1D5B9, 0x41),  # 𝖠-𝖹 → A-Z (sans-serif)
+        (0x1D5BA, 0x1D5D3, 0x61),  # 𝖺-𝗓 → a-z (sans-serif)
+        (0x1D5D4, 0x1D5ED, 0x41),  # 𝗔-𝗭 → A-Z (sans-serif bold)
+        (0x1D5EE, 0x1D607, 0x61),  # 𝗮-𝘇 → a-z (sans-serif bold)
+        (0x1D608, 0x1D621, 0x41),  # 𝘈-𝘡 → A-Z (sans-serif italic)
+        (0x1D622, 0x1D63B, 0x61),  # 𝘢-𝘻 → a-z (sans-serif italic)
+        (0x1D63C, 0x1D655, 0x41),  # 𝘼-𝙕 → A-Z (sans-serif bold italic)
+        (0x1D656, 0x1D66F, 0x61),  # 𝙖-𝙯 → a-z (sans-serif bold italic)
+        (0x1D670, 0x1D689, 0x41),  # 𝙰-𝚉 → A-Z (monospace)
+        (0x1D68A, 0x1D6A3, 0x61),  # 𝚊-𝚣 → a-z (monospace)
+    ]
+    result = []
+    for ch in name:
+        cp = ord(ch)
+        mapped = False
+        for start, end, base in RANGES:
+            if start <= cp <= end:
+                result.append(chr(base + (cp - start)))
+                mapped = True
+                break
+        if not mapped:
+            result.append(ch)
+    return ''.join(result)
 from format_detector import detect_format, FormatProfile as DetectedFormatProfile
 
 # Charger les variables d'environnement depuis .env
@@ -348,7 +395,7 @@ elif st.session_state.step == "scanning":
                         username = getattr(entity, "username", None)
                         channels.append({
                             "id": entity.id,
-                            "title": entity.title,
+                            "title": normalize_channel_name(entity.title),
                             "username": f"@{username}" if username else "—",
                             "megagroup": entity.megagroup,
                             "likely_trading": is_likely_trading_channel(entity.title)
