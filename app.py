@@ -719,7 +719,35 @@ elif st.session_state.step == "select":
                     result.append(ascii_char)
             return ''.join(result)
 
-        # Construire les lignes Excel: d'abord les channels avec 0 signal, puis les signaux
+        # Importer le parser du repo tgm
+        from signal_parser_tgm import SignalParser as TgmParser
+        tgm_parser = TgmParser()
+
+        MAX_SIGNALS_PER_CHANNEL = 2
+
+        def _format_parsed(sig) -> str:
+            """Formate un signal parsé en texte lisible."""
+            if not sig:
+                return ""
+            parts = []
+            if sig.direction:
+                parts.append(f"Action: {sig.direction}")
+            if sig.pair:
+                parts.append(f"Symbol: {sig.pair}")
+            if sig.zone_low and sig.zone_high and sig.zone_low != sig.zone_high:
+                parts.append(f"Zone: {sig.zone_low}/{sig.zone_high}")
+            elif sig.entry:
+                parts.append(f"Entry: {sig.entry}")
+            if sig.tps:
+                tps_str = ", ".join(f"{t:.2f}" for t in sig.tps)
+                parts.append(f"TPs: {tps_str}")
+            if sig.sl:
+                parts.append(f"SL: {sig.sl}")
+            if sig.is_quick_alert:
+                parts.append("[QA]")
+            return " | ".join(parts)
+
+        # Construire les lignes Excel
         all_scanned = st.session_state.get("all_scanned_channels", [])
         zero_signal_channels = []
         for ch in all_scanned:
@@ -730,39 +758,44 @@ elif st.session_state.step == "select":
         sig_xlsx_rows = []
         # 1. Channels avec 0 signal (au début)
         for ch_name, ch_id in zero_signal_channels:
-            sig_xlsx_rows.append((ch_name, ch_id, ""))
-        # 2. Signaux des channels sélectionnés
+            sig_xlsx_rows.append((ch_name, ch_id, "", ""))
+        # 2. Signaux des channels sélectionnés (max 2 par channel)
         for ch_id in selected_ids:
             data = channel_signals.get(ch_id, {})
             ch_name = _ascii_name(data.get("name", ""))
             sig_texts = data.get("signal_texts", [])
-            for raw_text in sig_texts:
-                sig_xlsx_rows.append((ch_name, ch_id, raw_text))
+            for raw_text in sig_texts[:MAX_SIGNALS_PER_CHANNEL]:
+                # Parser le signal avec le parser tgm
+                parsed = tgm_parser.parse(raw_text)
+                parsed_str = _format_parsed(parsed)
+                sig_xlsx_rows.append((ch_name, ch_id, raw_text, parsed_str))
 
         if sig_xlsx_rows:
-            st.info(f"📊 {len(sig_xlsx_rows)} lignes à exporter ({len(zero_signal_channels)} channels sans signal)")
+            st.info(f"📊 {len(sig_xlsx_rows)} lignes (max {MAX_SIGNALS_PER_CHANNEL} signaux/channel, {len(zero_signal_channels)} channels sans signal)")
 
             # Preview
             with st.expander("👁️ Aperçu (5 premières lignes)"):
-                for i, (ch_name, ch_id, raw_text) in enumerate(sig_xlsx_rows[:5]):
+                for i, (ch_name, ch_id, raw_text, parsed) in enumerate(sig_xlsx_rows[:5]):
                     st.markdown(f"**{ch_name}** · `{ch_id}`")
                     st.text(raw_text if raw_text else "(0 signal)")
+                    if parsed:
+                        st.caption(f"Parsing: {parsed}")
                     if i < 4:
                         st.divider()
 
-            # Excel download — openpyxl, preserves emojis and special chars
+            # Excel download
             from openpyxl import Workbook
             from openpyxl.styles import Font, PatternFill
             wb = Workbook()
             ws = wb.active
             ws.title = "Signaux"
-            ws.append(["channel_name", "channel_id", "signal"])
+            ws.append(["channel_name", "channel_id", "signal", "parsing"])
             # Style header
             header_font = Font(bold=True)
             for cell in ws[1]:
                 cell.font = header_font
-            for ch_name, ch_id, raw_text in sig_xlsx_rows:
-                ws.append([ch_name, ch_id, raw_text])
+            for ch_name, ch_id, raw_text, parsed in sig_xlsx_rows:
+                ws.append([ch_name, ch_id, raw_text, parsed])
             # Coloriser les lignes sans signal (gris)
             gray_fill = PatternFill(start_color="F2F2F2", end_color="F2F2F2", fill_type="solid")
             for row_idx in range(2, 2 + len(zero_signal_channels)):
@@ -772,6 +805,7 @@ elif st.session_state.step == "select":
             ws.column_dimensions['A'].width = 30
             ws.column_dimensions['B'].width = 15
             ws.column_dimensions['C'].width = 80
+            ws.column_dimensions['D'].width = 60
             xlsx_buf = _io.BytesIO()
             wb.save(xlsx_buf)
             xlsx_buf.seek(0)
