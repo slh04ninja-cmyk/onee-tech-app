@@ -13,55 +13,82 @@ from datetime import datetime
 from telethon import TelegramClient
 from telethon.tl.types import Channel
 
+import unicodedata as _ud
 from signal_parser import SignalParser, TradeSignal, FormatProfile, normalize_text, is_spam
 from csv_exporter import signals_to_csv, create_zip_from_channels, get_export_summary
+from format_detector import detect_format, FormatProfile as DetectedFormatProfile
 
 
-def normalize_channel_name(name: str) -> str:
-    """Convertit les caractères Unicode stylisés (𝗘𝗟𝗜𝗧𝗘, 𝐆𝐎𝐋𝐃) en texte ASCII normalisé."""
-    # Mathematical Alphanumeric Symbols → ASCII mapping
-    # Bold, Italic, Script, Fraktur, Double-struck, Monospace, Sans-serif
+def normalize_unicode_text(text: str) -> str:
+    """Convertit TOUS les caractères Unicode non-ASCII en texte normal.
+    Couvre : Mathematical Alphanumeric, exposants, indices, symboles, etc."""
     RANGES = [
-        (0x1D400, 0x1D419, 0x41),  # 𝐀-𝐙 → A-Z (bold)
-        (0x1D41A, 0x1D433, 0x61),  # 𝐚-𝐳 → a-z (bold)
-        (0x1D434, 0x1D44D, 0x41),  # 𝐴-𝑍 → A-Z (italic)
-        (0x1D44E, 0x1D467, 0x61),  # 𝑎-𝑧 → a-z (italic)
-        (0x1D468, 0x1D481, 0x41),  # 𝑨-𝒁 → A-Z (bold italic)
-        (0x1D482, 0x1D49B, 0x61),  # 𝒂-𝒛 → a-z (bold italic)
-        (0x1D49C, 0x1D4B5, 0x41),  # 𝒜-𝒵 → A-Z (script)
-        (0x1D4B6, 0x1D4CF, 0x61),  # 𝒶-𝔷 → a-z (script)
-        (0x1D4D0, 0x1D4E9, 0x41),  # 𝓐-𝓩 → A-Z (script bold)
-        (0x1D4EA, 0x1D503, 0x61),  # 𝓪-𝔃 → a-z (script bold)
-        (0x1D504, 0x1D51D, 0x41),  # 𝔄-𝕐 → A-Z (fraktur)
-        (0x1D51E, 0x1D537, 0x61),  # 𝔞-𝔷 → a-z (fraktur)
-        (0x1D538, 0x1D551, 0x41),  # 𝔸-𝕐 → A-Z (double-struck)
-        (0x1D552, 0x1D56B, 0x61),  # 𝕒-𝕫 → a-z (double-struck)
-        (0x1D56C, 0x1D585, 0x41),  # 𝕬-𝖅 → A-Z (bold fraktur)
-        (0x1D586, 0x1D59F, 0x61),  # 𝖆-𝖟 → a-z (bold fraktur)
-        (0x1D5A0, 0x1D5B9, 0x41),  # 𝖠-𝖹 → A-Z (sans-serif)
-        (0x1D5BA, 0x1D5D3, 0x61),  # 𝖺-𝗓 → a-z (sans-serif)
-        (0x1D5D4, 0x1D5ED, 0x41),  # 𝗔-𝗭 → A-Z (sans-serif bold)
-        (0x1D5EE, 0x1D607, 0x61),  # 𝗮-𝘇 → a-z (sans-serif bold)
-        (0x1D608, 0x1D621, 0x41),  # 𝘈-𝘡 → A-Z (sans-serif italic)
-        (0x1D622, 0x1D63B, 0x61),  # 𝘢-𝘻 → a-z (sans-serif italic)
-        (0x1D63C, 0x1D655, 0x41),  # 𝘼-𝙕 → A-Z (sans-serif bold italic)
-        (0x1D656, 0x1D66F, 0x61),  # 𝙖-𝙯 → a-z (sans-serif bold italic)
-        (0x1D670, 0x1D689, 0x41),  # 𝙰-𝚉 → A-Z (monospace)
-        (0x1D68A, 0x1D6A3, 0x61),  # 𝚊-𝚣 → a-z (monospace)
+        (0x1D400, 0x1D419, 0x41), (0x1D41A, 0x1D433, 0x61),
+        (0x1D434, 0x1D44D, 0x41), (0x1D44E, 0x1D467, 0x61),
+        (0x1D468, 0x1D481, 0x41), (0x1D482, 0x1D49B, 0x61),
+        (0x1D49C, 0x1D4B5, 0x41), (0x1D4B6, 0x1D4CF, 0x61),
+        (0x1D4D0, 0x1D4E9, 0x41), (0x1D4EA, 0x1D503, 0x61),
+        (0x1D504, 0x1D51D, 0x41), (0x1D51E, 0x1D537, 0x61),
+        (0x1D538, 0x1D551, 0x41), (0x1D552, 0x1D56B, 0x61),
+        (0x1D56C, 0x1D585, 0x41), (0x1D586, 0x1D59F, 0x61),
+        (0x1D5A0, 0x1D5B9, 0x41), (0x1D5BA, 0x1D5D3, 0x61),
+        (0x1D5D4, 0x1D5ED, 0x41), (0x1D5EE, 0x1D607, 0x61),
+        (0x1D608, 0x1D621, 0x41), (0x1D622, 0x1D63B, 0x61),
+        (0x1D63C, 0x1D655, 0x41), (0x1D656, 0x1D66F, 0x61),
+        (0x1D670, 0x1D689, 0x41), (0x1D68A, 0x1D6A3, 0x61),
     ]
+    SUPERSCRIPT = {'⁰':'0','¹':'1','²':'2','³':'3','⁴':'4','⁵':'5','⁶':'6','⁷':'7','⁸':'8','⁹':'9',
+                   '⁺':'+','⁻':'-','⁼':'=','⁽':'(','⁾':')','ⁿ':'n','ⁱ':'i'}
+    SUBSCRIPT = {'₀':'0','₁':'1','₂':'2','₃':'3','₄':'4','₅':'5','₆':'6','₇':'7','₈':'8','₉':'9',
+                 '₊':'+','₋':'-','₌':'=','₍':'(','₎':')','ₐ':'a','ₑ':'e','ₒ':'o','ₓ':'x'}
+    SYMBOLS = {
+        '✖':'X','✓':'v','✔':'v','✗':'x','✘':'x',
+        '▲':'+','▼':'-','▶':'>','◀':'<','△':'+','▽':'-',
+        '⬆':'^','⬇':'v','➡':'>','⬅':'<','⬆️':'^','⬇️':'v',
+        '🔴':'[R]','🟢':'[G]','🔵':'[B]','🟡':'[Y]','⚫':'[B]','⚪':'[W]',
+        '📉':'v','📈':'^','💹':'^','📊':'#','💎':'#','🏆':'#','🥇':'#1',
+        '💰':'$','💵':'$','💲':'$','🔥':'!','⚡':'!','💥':'!',
+        '📌':'>','📍':'>','🎯':'@','🚩':'SL','🛡':'SL','⛔':'X',
+        '❌':'X','✅':'v','❎':'x','❗':'!','‼':'!!','❓':'?','❔':'?',
+        '➡️':'>','⬅️':'<','⬆️':'^','⬇️':'v','↪':'>','↩':'<',
+        '⭐':'*','🌟':'*','✨':'*','💫':'*','🔔':'!','📢':'!',
+        '🚀':'','⚠':'!','💡':'!','🔑':'K','📱':'P',
+    }
     result = []
-    for ch in name:
+    for ch in text:
         cp = ord(ch)
+        if 0x20 <= cp < 0x7F:
+            result.append(ch)
+            continue
+        if ch in ('\n', '\r', '\t'):
+            result.append(ch)
+            continue
+        if ch in SUPERSCRIPT:
+            result.append(SUPERSCRIPT[ch])
+            continue
+        if ch in SUBSCRIPT:
+            result.append(SUBSCRIPT[ch])
+            continue
+        if ch in SYMBOLS:
+            result.append(SYMBOLS[ch])
+            continue
         mapped = False
         for start, end, base in RANGES:
             if start <= cp <= end:
                 result.append(chr(base + (cp - start)))
                 mapped = True
                 break
-        if not mapped:
-            result.append(ch)
+        if mapped:
+            continue
+        nfkd = _ud.normalize('NFKD', ch)
+        ascii_char = nfkd.encode('ascii', 'ignore').decode('ascii')
+        if ascii_char:
+            result.append(ascii_char)
     return ''.join(result)
-from format_detector import detect_format, FormatProfile as DetectedFormatProfile
+
+
+def normalize_channel_name(name: str) -> str:
+    return normalize_unicode_text(name)
 
 # Charger les variables d'environnement depuis .env
 load_dotenv()
@@ -443,7 +470,7 @@ elif st.session_state.step == "scanning":
                         all_parsed.append(sig)
                         if sig.signal_type == "TRADE" and sig.tps:
                             trade_signals.append(sig)
-                            signal_texts.append(text)
+                            signal_texts.append(normalize_unicode_text(text))
                         elif sig.signal_type == "TRADE" and not sig.tps:
                             no_tp += 1
                     else:
