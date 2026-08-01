@@ -361,8 +361,9 @@ elif st.session_state.step == "scanning":
         async def _scan_one_channel(api_id_val, api_hash_val, channel_id, days):
             from datetime import timedelta
             import signal_parser as sp_module
-            # Use a fresh session per channel to avoid cross-contamination
-            session_name = f"gold_scan_{channel_id}"
+            import random
+            # Use a unique session per scan to avoid cross-contamination
+            session_name = f"gold_scan_{channel_id}_{random.randint(1000,9999)}"
             client = TelegramClient(session_name, api_id_val, api_hash_val)
             await client.start()
             try:
